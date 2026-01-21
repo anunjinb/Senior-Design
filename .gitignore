@@ -1,0 +1,16 @@
+backend/data
+.DS_Store
+.idea
+.env
+.DS_Store
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Model artifacts
+*.pkl
+rf_metrics.json
