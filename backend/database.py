@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from config import DB
 
 # Construct URL from your config dictionary
-DATABASE_URL = f"postgresql://{DB['user']}:{DB['password']}@{DB['host']}:{DB['port']}/{DB['dbname']}"
+DATABASE_URL = f"postgresql+pg8000://{DB['user']}:{DB['password']}@{DB['host']}:{DB['port']}/{DB['dbname']}"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import BugAnalysis from './pages/BugAnalysis';
 import {
   Database, BrainCircuit, LogOut, Search,
   ShieldCheck, UploadCloud, Activity,
@@ -327,9 +328,9 @@ function MLPredictor({ user }) {
         const payload = { summary, component, platform };
         const r = await axios.post('http://127.0.0.1:8000/api/predict', payload);
         setRes(r.data);
-    } catch {
-        // Fallback for demo
-        setTimeout(() => setRes({ prediction: "S2", confidence: 0.89, diagnosis: "Heuristic Analysis", team: "General", keywords: [] }), 800);
+    } catch (err) {
+        alert("Error: Could not connect to backend API. Make sure the backend server is running at http://127.0.0.1:8000");
+        console.error("API Error:", err);
     }
     setLoading(false);
   }
@@ -630,7 +631,8 @@ function Dashboard({ user, onLogout }) {
              BUG<span style={{color:'var(--accent)'}}>PRIORITY</span>
           </div>
           <div className="nav-center">
-             {['Overview', 'Database', 'Predictor', 'Submit'].map(t => (
+             {/* ✅ UPDATED: Added 'Analysis' to this list */}
+             {['Overview', 'Database', 'Predictor', 'Analysis', 'Submit'].map(t => (
                  <button
                     key={t}
                     className={`nav-link ${tab===t.toLowerCase()?'active':''}`}
@@ -658,6 +660,10 @@ function Dashboard({ user, onLogout }) {
          {tab === 'overview' && <Overview user={user} onNavigate={handleNavigation}/>}
          {tab === 'database' && <Explorer user={user} initialQuery={externalQuery}/>}
          {tab === 'predictor' && <MLPredictor user={user}/>}
+         
+         {/* ✅ ADDED: This shows your new Bug Analysis Page */}
+         {tab === 'analysis' && <BugAnalysis />}
+         
          {tab === 'submit' && <SubmitTab user={user}/>}
       </main>
     </div>
@@ -769,7 +775,17 @@ function Login({ onLogin }) {
   )
 }
 
+// ==========================================
+// 👇 THE MAIN APP SWITCH
+// ==========================================
 export default function App() {
   const [user, setUser] = useState(null);
-  return user ? <Dashboard user={user} onLogout={()=>setUser(null)} /> : <Login onLogin={setUser}/>;
+
+  // 1. If no user is logged in, show Login
+  if (!user) {
+    return <Login onLogin={(loggedInUser) => setUser(loggedInUser)} />;
+  }
+
+  // 2. If user IS logged in, show Dashboard
+  return <Dashboard user={user} onLogout={() => setUser(null)} />;
 }

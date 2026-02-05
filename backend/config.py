@@ -4,7 +4,7 @@ import os
 DB = {
     "dbname": "bugbug_data",
     "user": "postgres",
-    "password": "2331",
+    "password": "1234",
     "host": "localhost",
     "port": "5432"
 }
