@@ -41,3 +41,29 @@ Download the universal training dataset (~221k records):
 ```bash
 pip install bugbug
 python3 -c "from bugbug import bugzilla, db; db.download(bugzilla.BUGS_DB)"
+```
+### 3. Backend Configuration
+
+1. Navigate to the `/backend` directory.
+2. Create a `.env` file and add your credentials:
+
+```text
+DATABASE_URL="postgresql://USERNAME:PASSWORD@localhost:5432/bugbug_data"
+SECRET_KEY="your_jwt_secret_key"
+```
+### 4. Install dependencies and initialize the system:
+```bash
+pip install -r requirements.txt
+python3 make_data.py        # Ingest records to SQL
+python3 Train_Universal.py   # Train the RF Model
+uvicorn main:app --reload    # Start the API
+```
+#### Frontend Setup
+
+Navigate to the /frontend directory.
+
+Install dependencies and launch the development server:
+```bash
+npm install
+npm start
+```
