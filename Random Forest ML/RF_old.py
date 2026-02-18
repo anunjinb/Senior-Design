@@ -9,18 +9,24 @@ from sklearn.metrics import accuracy_score, f1_score, classification_report, con
 from imblearn.over_sampling import SMOTE
 from scipy.sparse import hstack, csr_matrix
 
+# koshi ------------------
+from pathlib import Path
+
 # -----------------------------
 # CONFIGURATION
 # -----------------------------
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
-DB = {
-    "dbname": os.getenv("BUGBUG_DB", "bugbug_data"),
-    "user": os.getenv("BUGBUG_DB_USER", "postgres"),
-    "password": os.getenv("BUGBUG_DB_PASSWORD", "2331"),
-    "host": os.getenv("BUGBUG_DB_HOST", "localhost"),
-    "port": os.getenv("BUGBUG_DB_PORT", "5432"),
-}
+PSYCOPG2_URL = os.getenv("PSYCOPG2_URL")
+if not PSYCOPG2_URL:
+    raise ValueError("PSYCOPG2_URL is missing in .env")
+
+DB_CONN_STR = PSYCOPG2_URL
+
+
+# koshi ------------------
+
+
 
 RANDOM_STATE = 42
 # TF-IDF feature limit and number of trees in Random Forest
@@ -61,7 +67,9 @@ QUERY = """
 # -----------------------------
 def load_bugs(limit=None):
     print("Connecting to database...")
-    conn = psycopg2.connect(**DB)
+    # koshi ------------------
+    conn = psycopg2.connect(DB_CONN_STR)
+    # koshi ------------------
     sql = QUERY
     if limit:
         sql = sql.rstrip().rstrip(';') + f" LIMIT {int(limit)};"

@@ -1,13 +1,29 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+from urllib.parse import urlparse
 
-# --- DATABASE CONNECTION ---
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL が .env に無いで。")
+
+
+u = urlparse(DATABASE_URL)
+
 DB = {
-    "dbname": "bugbug_data",
-    "user": "postgres",
-    "password": "2331",
-    "host": "localhost",
-    "port": "5432"
+    "dbname": (u.path or "").lstrip("/") or "postgres",
+    "user": u.username,
+    "password": u.password,
+    "host": u.hostname,
+    "port": str(u.port or 5432),
+    "sslmode": "require",
 }
+# koshi ------------------
+
+
 
 # --- ML ARTIFACT PATHS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

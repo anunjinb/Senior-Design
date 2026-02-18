@@ -26,16 +26,19 @@ if sys.platform == "win32":
 
 from bugbug import bugzilla, db
 
+
+# koshi ------------------
+
 # ==========================================
 # 2. CONFIGURATION
 # ==========================================
-DB = {
-    "dbname": "bugbug_data",
-    "user": "postgres",
-    "password": "2331",
-    "host": "localhost",
-    "port": "5432"
-}
+
+try:
+    # import.py を backend/ の中で実行する場合
+    from config import DB
+except ModuleNotFoundError:
+    # import.py をプロジェクトルートで実行する場合
+    from backend.config import DB
 
 # The ID for the automatic account
 DEFAULT_COMPANY_ID = 1
@@ -43,6 +46,7 @@ DEFAULT_COMPANY_ID = 1
 
 def get_connection():
     return psycopg2.connect(**DB)
+# koshi ------------------
 
 
 def clean_obj(obj):
