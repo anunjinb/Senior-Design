@@ -15,7 +15,6 @@ axios.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
-
 function Dashboard({ user, onLogout, theme, toggleTheme }) {
   const [tab, setTab] = useState('overview');
   const [externalQuery, setExternalQuery] = useState("");
