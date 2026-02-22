@@ -9,7 +9,8 @@ dist/
 venv/
 __pycache__/
 *.pyc
-
+frontend/package-lock.json
+frontend/package.json
 # --- AI Models (Too large for Git) ---
 backend/*.pkl
 
