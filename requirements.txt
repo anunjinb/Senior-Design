@@ -3,7 +3,7 @@ fastapi
 uvicorn
 python-multipart
 
-# Database & ORM
+# Database
 sqlalchemy
 psycopg2-binary
 supabase
