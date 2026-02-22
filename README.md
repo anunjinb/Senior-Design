@@ -70,7 +70,7 @@ npm install
 
 ## 2. Machine learning pipeline (the brain)
 
-Before starting the server for the first time, you must generate the model artifacts.
+Before starting the server for the first time, you must generate the necessary model artifacts.
 
 ### 1. Generate the dataset
 
