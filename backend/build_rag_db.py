@@ -7,7 +7,7 @@ print("--- STARTING DATABASE BUILD ---")
 
 # 1. Load Data
 if not os.path.exists("../Random Forest ML/data.csv"):
-    print("❌ Error: 'data.csv' not found in backend folder.")
+    print("❌ Error: 'javascript.csv' not found in backend folder.")
     exit()
 
 try:
@@ -35,7 +35,7 @@ if not target_col:
     print("❌ CRITICAL ERROR: Could not find a text column!")
     print(f"   We looked for: {possible_names}")
     print(f"   We found: {df.columns.tolist()}")
-    print("   -> Please rename the main text column in data.csv to 'summary'.")
+    print("   -> Please rename the main text column in javascript.csv to 'summary'.")
     exit()
 
 print(f"✅ Using column '{target_col}' for AI analysis.")

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FolderTree, ExternalLink, ArrowRight, Layers, Activity, AlertTriangle, Database, Plus, X, Search } from 'lucide-react';
-import { mozillaTaxonomy, teamDescriptions } from '../data/taxonomy';
+import { mozillaTaxonomy, teamDescriptions } from '../javascript/taxonomy';
 
 export default function Directory({ onNavigate }) {
   const [expandedTeam, setExpandedTeam] = useState(null);

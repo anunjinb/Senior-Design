@@ -36,9 +36,9 @@ def run_training_pipeline(fast_mode=False):
         N_ESTIMATORS = 50 if fast_mode else 100
         
         # --- 2. LOAD DATA ---
-        print(f"📂 Loading data from {CSV_FILE}...")
+        print(f"📂 Loading javascript from {CSV_FILE}...")
         if not os.path.exists(CSV_FILE):
-            raise Exception(f"File {CSV_FILE} not found! Please ensure data.csv is in {BASE_DIR}")
+            raise Exception(f"File {CSV_FILE} not found! Please ensure javascript.csv is in {BASE_DIR}")
             
         df = pd.read_csv(CSV_FILE)
         

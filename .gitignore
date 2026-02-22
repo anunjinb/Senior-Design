@@ -15,7 +15,7 @@ frontend/package.json
 backend/*.pkl
 
 # --- Databases & Vector Stores ---
-# This keeps your local data from overwriting your teammates' data
+# This keeps your local javascript from overwriting your teammates' javascript
 *.db
 *.sqlite3
 data/

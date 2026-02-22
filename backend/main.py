@@ -128,7 +128,7 @@ async def create_bug(req: CreateBugRequest, current_user=Depends(auth.get_curren
     bug_to_insert = {
         "bug_id": custom_bug_id, "summary": req.bug.summary, "component": req.bug.component,
         "severity": req.bug.severity, "status": req.bug.status, "company_id": current_user["company_id"],
-        "data": {"platform": req.bug.platform}
+        "javascript": {"platform": req.bug.platform}
     }
     response = supabase.table("firefox_table").insert(bug_to_insert).execute()
     if not response.data: raise HTTPException(500, "Failed to save")

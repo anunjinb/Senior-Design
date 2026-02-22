@@ -5,7 +5,7 @@ import os
 def fetch_data():
     print("🚀 Connecting to Hugging Face Hub...")
     
-    # We use a reliable dataset of 100k+ bugs (Eclipse/Bugzilla data)
+    # We use a reliable dataset of 100k+ bugs (Eclipse/Bugzilla javascript)
     # This is perfect because it uses the exact same 'Severity' schema as Firefox
     try:
         # Load dataset (streaming=True lets us peek without downloading everything if we wanted)

@@ -29,7 +29,7 @@ def main():
     try:
         subprocess.run([sys.executable, "backend/sync_taxonomy.py"], check=True)
     except Exception as e:
-        print(f"⚠️ Warning: ETL Sync Failed: {e}. Starting with cached data.")
+        print(f"⚠️ Warning: ETL Sync Failed: {e}. Starting with cached javascript.")
 
     # Step 2: Start FastAPI Backend
     print("-> Starting FastAPI Backend (Port 8000)...")

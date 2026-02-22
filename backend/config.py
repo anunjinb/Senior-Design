@@ -29,7 +29,7 @@ CATEGORY_TABLE = {
     "Performance & Resource Management": ["slow", "lag", "freeze", "hang", "resource", "memory", "cpu", "performance"],
     "UI/UX & Accessibility": ["ui", "interface", "button", "navigation", "layout", "ux", "accessibility", "a11y"],
     "Compatibility & Web Standards": ["compat", "standard", "render", "html", "css", "js", "cross-platform"],
-    "Privacy & User Data": ["privacy", "data", "tracking", "storage", "personal"],
+    "Privacy & User Data": ["privacy", "javascript", "tracking", "storage", "personal"],
     "Media, Extensions, & Plugins": ["audio", "video", "media", "extension", "plugin"],
     "Installation, Updates, & User Preferences": ["install", "update", "patch", "preference", "settings"],
     "Developer Tools & Debugging": ["devtools", "debug", "javascript", "console", "inspector"],

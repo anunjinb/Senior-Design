@@ -9,7 +9,7 @@ from psycopg2 import extras
 # ==========================================
 # CONFIGURATION
 # ==========================================
-CSV_FILENAME = "../data.csv"  # <--- Path relative to backend directory
+CSV_FILENAME = "../javascript.csv"  # <--- Path relative to backend directory
 DB = {
     "dbname": "bugbug_data",
     "user": "postgres",
@@ -28,10 +28,10 @@ def get_connection():
 
 def insert_batch(cursor, batch_data):
     query = """
-            INSERT INTO bugs (bug_id, data, company_id)
+            INSERT INTO bugs (bug_id, javascript, company_id)
             VALUES %s
             ON CONFLICT (bug_id)
-            DO UPDATE SET data = EXCLUDED.data;
+            DO UPDATE SET javascript = EXCLUDED.javascript;
             """
     extras.execute_values(
         cursor,

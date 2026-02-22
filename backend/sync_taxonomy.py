@@ -3,7 +3,7 @@ import json
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_TAXONOMY_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "src", "data", "taxonomy.js"))
+FRONTEND_TAXONOMY_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "src", "javascript", "taxonomy.js"))
 
 # 🛡️ ENTERPRISE FAILOVER CACHE
 # If the Mozilla API goes down or blocks the request, the system falls back to this cache automatically.
@@ -48,7 +48,7 @@ def fetch_and_build_taxonomy():
     success = False
 
     try:
-        # Added User-Agent and specific include_fields to prevent Mozilla from blocking or truncating the data
+        # Added User-Agent and specific include_fields to prevent Mozilla from blocking or truncating the javascript
         url = "https://bugzilla.mozilla.org/rest/product?names=Firefox,Core,DevTools,Toolkit,NSS&include_fields=name,description,components.name,components.is_active"
         headers = {'User-Agent': 'BugPriorityOS-SeniorDesignProject/1.0'}
 
@@ -86,7 +86,7 @@ def fetch_and_build_taxonomy():
             success = True
             print("✅ [ETL PIPELINE] Live Data Extracted & Transformed successfully!")
         else:
-            raise ValueError("All components filtered out. Resulting data was empty.")
+            raise ValueError("All components filtered out. Resulting javascript was empty.")
 
     except Exception as e:
         print(f"⚠️ [ETL PIPELINE] Live sync failed: {e}")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { mozillaTaxonomy } from '../data/taxonomy';
+import { mozillaTaxonomy } from '../javascript/taxonomy';
 import {
   UploadCloud, AlertCircle, FileText, PenTool,
   Cpu, BarChart3, CheckCircle, Sparkles, Send, Trash2, X, FolderTree

@@ -7,9 +7,9 @@ import shutil
 # --- CONFIG ---
 # We look for the CSV in the current folder OR the folder above
 POSSIBLE_PATHS = [
-    "data.csv",                   # If inside backend
-    "../random_forest_ml/data.csv", # If inside ML folder
-    "../data.csv"
+    "javascript.csv",                   # If inside backend
+    "../random_forest_ml/javascript.csv", # If inside ML folder
+    "../javascript.csv"
 ]
 
 DB_PATH = "./rag_db"
@@ -22,12 +22,12 @@ def build_memory():
     for path in POSSIBLE_PATHS:
         if os.path.exists(path):
             csv_path = path
-            print(f"✅ Found data at: {path}")
+            print(f"✅ Found javascript at: {path}")
             break
 
     if not csv_path:
-        print("❌ ERROR: Could not find 'data.csv'.")
-        print("   -> Please check if data.csv exists in 'backend' or 'random_forest_ml'.")
+        print("❌ ERROR: Could not find 'javascript.csv'.")
+        print("   -> Please check if javascript.csv exists in 'backend' or 'random_forest_ml'.")
         return
 
     # 2. LOAD DATA
@@ -69,7 +69,7 @@ def build_memory():
     # 3. SETUP DATABASE (Clean Slate)
     print("⚙️ Setting up Vector Database...")
 
-    # Delete old DB folder to ensure no dummy data remains
+    # Delete old DB folder to ensure no dummy javascript remains
     if os.path.exists(DB_PATH):
         try:
             shutil.rmtree(DB_PATH)
