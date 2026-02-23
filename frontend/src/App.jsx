@@ -6,6 +6,7 @@ import Explorer from "./Pages/Explorer";
 import SubmitTab from "./Pages/Submit";
 import Login from "./Pages/Login";
 import Directory from "./Pages/Directory";
+import Performance from "./Pages/Performance";
 
 import { ShieldCheck, LogOut, Moon, Sun } from 'lucide-react';
 import './App.css';
@@ -38,7 +39,7 @@ function Dashboard({ user, onLogout, theme, toggleTheme }) {
              BUG<span style={{color:'var(--accent)'}}>PRIORITY</span>
           </div>
           <div className="nav-center">
-             {['Overview', 'Directory', 'Database', 'Analysis', 'Submit'].map(t => (
+             {['Overview', 'Directory', 'Database', 'Analysis', 'Submit', 'Performance'].map(t => (
                  <button key={t} className={`nav-link ${tab===t.toLowerCase()?'active':''}`} onClick={()=>{ setTab(t.toLowerCase()); setExternalQuery(""); }}>
                     {t}
                  </button>
@@ -64,6 +65,7 @@ function Dashboard({ user, onLogout, theme, toggleTheme }) {
          {tab === 'database' && <Explorer user={user} initialQuery={externalQuery} onNavigate={handleNavigation}/>}
          {tab === 'analysis' && <BugAnalysis />}
          {tab === 'submit' && <SubmitTab user={user} prefill={submitPrefill} onClearPrefill={() => setSubmitPrefill(null)}/>}
+         {tab === 'performance' && <Performance />}
       </main>
     </div>
   );

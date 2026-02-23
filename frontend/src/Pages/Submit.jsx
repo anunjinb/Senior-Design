@@ -3,7 +3,7 @@ import axios from 'axios';
 import { mozillaTaxonomy } from '../javascript/taxonomy';
 import {
   UploadCloud, AlertCircle, FileText, PenTool,
-  Cpu, BarChart3, CheckCircle, Sparkles, Send, Trash2, X, FolderTree
+  Cpu, BarChart3, CheckCircle, Sparkles, Send, Trash2, X, FolderTree, RefreshCw
 } from 'lucide-react';
 
 function Toast({ msg, onClose }) {
@@ -49,7 +49,12 @@ export default function Submit({ user, prefill, onClearPrefill }) {
   const getHeaders = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } });
 
   useEffect(() => { fetchBatches(); }, []);
-  const fetchBatches = async () => { try { const res = await axios.get(`/api/batches`, getHeaders()); setBatches(res.data); } catch (err) { } };
+  const fetchBatches = async () => {
+      try {
+          const res = await axios.get(`/api/batches`, getHeaders());
+          setBatches(res.data);
+      } catch (err) { console.error("Could not load ledger."); }
+  };
 
   const handleAnalyze = async () => {
     if (!summary || !component) { setMsg({ text: "Please provide a summary and select a component.", type: "error" }); return; }
@@ -80,6 +85,40 @@ export default function Submit({ user, prefill, onClearPrefill }) {
           await axios.delete(`/api/bug/${bugId}`, getHeaders());
           setRecentBugs(recentBugs.filter(b => b.bug_id !== bugId));
       } catch (err) { setMsg({ text: "Could not delete bug", type: "error" }); }
+  };
+
+  const handleBulkUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // STRICT FORMAT VALIDATION
+    const fileExt = file.name.split('.').pop().toLowerCase();
+    if (fileExt !== 'csv' && fileExt !== 'json') {
+        setMsg({ text: "Invalid format! Only .csv and .json files are allowed.", type: "error" });
+        e.target.value = null; // Clears the bad file from the input
+        return;
+    }
+
+    setLoading(true);
+    setMsg({ text: "Uploading to cloud and retraining AI... This will take a moment.", type: "success" });
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("company_id", user.company_id);
+
+    try {
+      await axios.post("/api/retrain", formData, {
+          headers: { ...getHeaders().headers, 'Content-Type': 'multipart/form-data' }
+      });
+      setMsg({ text: "Success! Data uploaded and model retrained.", type: "success" });
+      fetchBatches();
+    } catch (err) {
+      const errorDetail = err.response?.data?.detail || "Retraining failed. Check backend logs.";
+      setMsg({ text: errorDetail, type: "error" });
+    } finally {
+      setLoading(false);
+      e.target.value = null; // Resets input so they can upload again if needed
+    }
   };
 
   return (
@@ -155,10 +194,23 @@ export default function Submit({ user, prefill, onClearPrefill }) {
                     )}
                 </div>
             ) : (
-                <div className="fade-in" style={{textAlign:'center'}}>
-                    <div className="drop-area-modern" style={{padding: 40, border: '2px dashed var(--border)', borderRadius: 16}}>
-                        <FileText size={40} color="var(--text-sec)" style={{margin:'0 auto 15px'}}/>
-                        <p style={{fontSize: 14, color: 'var(--text-sec)'}}>Upload CSV to improve model knowledge</p>
+                <div className="fade-in" style={{textAlign:'center', position: 'relative'}}>
+                    <input
+                        type="file" accept=".csv,.json" onChange={handleBulkUpload} disabled={loading}
+                        style={{ opacity: 0, position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor: 'pointer', zIndex: 10 }}
+                    />
+                    <div className="drop-area-modern" style={{padding: 40, border: '2px dashed var(--border)', borderRadius: 16, background: loading ? 'var(--hover-bg)' : 'var(--bg)'}}>
+                        {loading ? (
+                            <RefreshCw size={40} className="spin" color="var(--accent)" style={{margin:'0 auto 15px'}}/>
+                        ) : (
+                            <FileText size={40} color="var(--text-sec)" style={{margin:'0 auto 15px'}}/>
+                        )}
+                        <p style={{fontSize: 14, color: 'var(--text-main)', fontWeight: 600}}>
+                            {loading ? "Training in progress..." : "Click or Drag to Upload CSV / JSON"}
+                        </p>
+                        <p style={{fontSize: 12, color: 'var(--text-sec)'}}>
+                            Uploads bugs to the cloud database and recalibrates the model instantly.
+                        </p>
                     </div>
                 </div>
             )}
@@ -166,8 +218,27 @@ export default function Submit({ user, prefill, onClearPrefill }) {
       </div>
 
       <div className="sys-card" style={{flex: 1, padding: 0, minHeight: 600}}>
-          <div style={{padding: 25, borderBottom: '1px solid var(--border)'}}><h2 style={{fontSize: 16, fontWeight: 800, display:'flex', alignItems:'center', gap: 10}}><BarChart3 size={18}/> Model Ledger</h2></div>
-          <div className="ledger-list" style={{padding: 20, textAlign: 'center', color: 'var(--text-sec)', fontSize: 13}}>History will appear here.</div>
+          <div style={{padding: 25, borderBottom: '1px solid var(--border)'}}>
+              <h2 style={{fontSize: 16, fontWeight: 800, display:'flex', alignItems:'center', gap: 10}}><BarChart3 size={18}/> Model Ledger</h2>
+          </div>
+          <div className="ledger-list custom-scrollbar" style={{padding: 0, maxHeight: 530, overflowY: 'auto'}}>
+              {batches.length === 0 ? (
+                  <div style={{padding: 40, textAlign: 'center', color: 'var(--text-sec)', fontSize: 13}}>History will appear here.</div>
+              ) : (
+                  batches.map((batch, i) => (
+                      <div key={i} className="fade-in" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'var(--card-bg)' }}>
+                          <div style={{ overflow: 'hidden' }}>
+                              <strong style={{ color: 'var(--text-main)', fontSize: 14, display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{batch.batch_name}</strong>
+                              <div style={{ color: 'var(--text-sec)', fontSize: 11, marginTop: 4 }}>{new Date(batch.upload_time).toLocaleString()}</div>
+                          </div>
+                          <div style={{ textAlign: 'right', minWidth: 80 }}>
+                              <span className="pill" style={{ background: 'rgba(16,185,129,0.1)', color: 'var(--success)', marginBottom: 4 }}>{batch.status}</span>
+                              <div style={{ color: 'var(--text-sec)', fontSize: 11, fontWeight: 600 }}>{batch.bug_count} Records</div>
+                          </div>
+                      </div>
+                  ))
+              )}
+          </div>
       </div>
     </div>
   );

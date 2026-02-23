@@ -13,7 +13,7 @@ frontend/package-lock.json
 frontend/package.json
 # --- AI Models (Too large for Git) ---
 backend/*.pkl
-
+backend/*pkl.old
 # --- Databases & Vector Stores ---
 # This keeps your local javascript from overwriting your teammates' javascript
 *.db
@@ -24,3 +24,5 @@ backend/rag_db/
 # --- Media & Large Data Assets ---
 *.mp4
 *.csv
+Random Forest ML/rf_metrics.json
+Random Forest ML/rf_metrics.json.old

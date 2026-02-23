@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile
+from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
@@ -6,6 +6,10 @@ from database import supabase, engine
 from pydantic import BaseModel
 import auth, time, os, io, csv
 from datetime import datetime
+import pandas as pd
+import subprocess
+import json
+import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "rag_db")
@@ -152,23 +156,18 @@ def get_overview(current_user=Depends(auth.get_current_user)):
             "charts": {"components": top_components}}
 
 
-# ⚡ UPGRADED: Normalizes keys for robust frontend matching
 @app.get("/api/hub/component_counts")
 def get_component_counts(current_user=Depends(auth.get_current_user)):
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT component, COUNT(*) FROM firefox_table GROUP BY component")).fetchall()
-        # Ensure keys are perfectly stripped and lowercased so React can find them
         return {str(r[0]).strip().lower() if r[0] else "general": r[1] for r in rows}
 
 
-# ⚡ UPGRADED: Deep Scans the Summary column if exact component match fails
 @app.get("/api/hub/component_inspector")
 def get_component_inspector(component: str, team: str = "", current_user=Depends(auth.get_current_user)):
     with engine.connect() as conn:
         comp_wildcard = f"%{component}%"
         team_match = team.lower() if team else ""
-
-        # SQL checks if the component column matches exactly OR if the sub-component exists in the summary
         query = text("""
                      SELECT COUNT(*)
                      FROM firefox_table
@@ -319,3 +318,87 @@ def submit_feedback(req: FeedbackRequest, current_user=Depends(auth.get_current_
         "actual_severity": req.actual_severity, "company_id": current_user["company_id"]
     }).execute()
     return {"message": "Feedback integrated into model ledger."}
+
+# --- BULK UPLOAD / RETRAINING ENDPOINTS ---
+@app.post("/api/retrain")
+async def bulk_retrain(background_tasks: BackgroundTasks, company_id: int = Form(...), file: UploadFile = File(...)):
+    if not (file.filename.endswith('.csv') or file.filename.endswith('.json')):
+        raise HTTPException(status_code=400, detail="Only CSV and JSON files are supported.")
+
+    try:
+        contents = await file.read()
+
+        if file.filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(contents))
+        else:
+            df = pd.read_json(io.BytesIO(contents))
+
+        if 'summary' not in df.columns or 'severity' not in df.columns:
+            raise HTTPException(status_code=400, detail="File must contain 'summary' and 'severity' fields.")
+
+        records = df[['summary', 'severity']].to_dict(orient='records')
+
+        # ⚡ THE FIX: Use SQLAlchemy to write directly to the database, bypassing RLS completely!
+        with engine.connect() as conn:
+            conn.execute(
+                text("""
+                     INSERT INTO training_batches (batch_name, status, company_id, bug_count)
+                     VALUES (:b, :s, :c, :count)
+                     """),
+                {
+                    "b": file.filename,
+                    "s": "completed",
+                    "c": company_id,
+                    "count": len(records)
+                }
+            )
+            conn.commit()
+
+        temp_csv_path = os.path.join(os.path.dirname(__file__), "temp_upload.csv")
+        df.to_csv(temp_csv_path, index=False)
+
+        def run_ml_pipeline():
+            try:
+                script_path = os.path.join(os.path.dirname(__file__), "../Random Forest ML/Train_Universal.py")
+                subprocess.run([sys.executable, script_path, "--append_csv", temp_csv_path], check=True)
+            finally:
+                if os.path.exists(temp_csv_path):
+                    os.remove(temp_csv_path)
+
+        background_tasks.add_task(run_ml_pipeline)
+        return {"status": "success", "message": f"{len(records)} bugs routed to AI. Main database untouched."}
+
+    except Exception as e:
+        print(f"Retrain Error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process bulk upload.")
+
+@app.get("/api/batches")
+def get_batches():
+    try:
+        res = supabase.table("training_batches").select("*").order("upload_time", desc=True).limit(10).execute()
+        return res.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/hub/ml_metrics")
+def get_ml_metrics():
+    try:
+        # Paths to both the active brain and the backup brain
+        metrics_path = os.path.join(BASE_DIR, "../Random Forest ML/rf_metrics.json")
+        old_metrics_path = os.path.join(BASE_DIR, "../Random Forest ML/rf_metrics.json.old")
+
+        data = {"current": None, "previous": None}
+
+        if os.path.exists(metrics_path):
+            with open(metrics_path, "r") as f:
+                data["current"] = json.load(f)
+
+        if os.path.exists(old_metrics_path):
+            with open(old_metrics_path, "r") as f:
+                data["previous"] = json.load(f)
+
+        return data
+    except Exception as e:
+        print(f"Metrics fetch error: {e}")
+    return {"current": None, "previous": None}
