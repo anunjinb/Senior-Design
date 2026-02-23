@@ -16,7 +16,6 @@ axios.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
-
 function Dashboard({ user, onLogout, theme, toggleTheme }) {
   const [tab, setTab] = useState('overview');
   const [externalQuery, setExternalQuery] = useState("");
@@ -76,7 +75,7 @@ export default function App() {
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
 
   useEffect(() => {
-    document.documentElement.setAttribute('javascript-theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
   }, [theme]);
 
