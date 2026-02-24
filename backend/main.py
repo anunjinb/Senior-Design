@@ -1,58 +1,42 @@
-from fastapi import FastAPI, HTTPException, Depends, status, File, UploadFile, BackgroundTasks, Form
+from fastapi import FastAPI, HTTPException, Depends, Form, File, UploadFile, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from sqlalchemy import text
-from database import supabase, engine
 from pydantic import BaseModel
-import auth, time, os, io, csv
-from datetime import datetime
-import pandas as pd
-import subprocess
-import json
-import sys
+import os, joblib, pandas as pd, io, csv, subprocess, sys, json
+import auth
+from database import supabase, SUPABASE_URL, SUPABASE_KEY
+from supabase import create_client
+from ml_logic import predict_severity, force_reload_models
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "rag_db")
+MODEL_PATH = os.path.join(BASE_DIR, "rf_model.pkl")
+VECTOR_PATH = os.path.join(BASE_DIR, "tfidf_vectorizer.pkl")
+rf_model = None
+vectorizer = None
 
-rag_collection = None
+
+def load_models():
+    global rf_model, vectorizer
+    try:
+        if os.path.exists(MODEL_PATH) and os.path.exists(VECTOR_PATH):
+            rf_model = joblib.load(MODEL_PATH)
+            vectorizer = joblib.load(VECTOR_PATH)
+            print("AI Models loaded successfully.")
+    except Exception as e:
+        print(f"AI Load Error: {e}")
+
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+load_models()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"],
+                   allow_headers=["*"])
 
 
-@app.on_event("startup")
-def verify_company_exists():
-    try:
-        with engine.connect() as conn:
-            conn.execute(
-                text("INSERT INTO companies (id, name) VALUES (1, 'Admin Company') ON CONFLICT (id) DO NOTHING"))
-            conn.execute(
-                text("INSERT INTO companies (id, name) VALUES (2, 'Bug Priority Admin') ON CONFLICT (id) DO NOTHING"))
-            conn.execute(
-                text("SELECT setval(pg_get_serial_sequence('companies', 'id'), (SELECT MAX(id) FROM companies))"))
-            conn.commit()
-            print("✅ SYSTEM READY: Database counters synchronized.")
-    except Exception as e:
-        print(f"Startup config notice: {e}")
-
-
-def load_ai():
-    global rag_collection
-    if rag_collection is None:
-        try:
-            import chromadb
-            client = chromadb.PersistentClient(path=DB_PATH)
-            rag_collection = client.get_or_create_collection(name="bug_reports")
-        except Exception as e:
-            print(f"RAG Load Error: {e}")
-
-
-# --- DATA SCHEMAS ---
 class BugPayload(BaseModel):
     summary: str
     component: str = "General"
     severity: str = "S3"
-    status: str = "New"
+    status: str = "NEW"
     platform: str = "Windows"
 
 
@@ -61,322 +45,291 @@ class CreateBugRequest(BaseModel):
     company_id: int
 
 
-class RegisterRequest(BaseModel):
-    username: str
-    password: str
-    role: str = "user"
-    company_name: str
-
-
-class PredictRequest(BaseModel):
+class PredictPayload(BaseModel):
     summary: str
-    component: str = "General"
+    component: str = "Frontend"
     platform: str = "Windows"
 
 
-class AnalyzeRequest(BaseModel):
-    bug_text: str
-
-
-class FeedbackRequest(BaseModel):
+class FeedbackPayload(BaseModel):
     summary: str
     predicted_severity: str
     actual_severity: str
     company_id: int
 
 
-# --- AUTH ENDPOINTS ---
+class UserRegister(BaseModel):
+    username: str
+    password: str
+    role: str = "user"
+    company_name: str = "Unknown"
+
+
 @app.post("/api/login")
 def login(creds: auth.LoginRequest):
-    try:
-        with engine.connect() as conn:
-            query = text("SELECT username, password_hash, company_id FROM users WHERE username = :u")
-            user_record = conn.execute(query, {"u": creds.username}).fetchone()
-        if not user_record: raise HTTPException(401, "Invalid Operator ID")
-        db_username, db_password_hash, db_company_id = user_record
-        if not auth.verify_password(creds.password, db_password_hash): raise HTTPException(401, "Invalid Passcode")
-        token = auth.create_access_token(data={"sub": db_username})
-        return {"access_token": token, "token_type": "bearer", "username": db_username, "company_id": db_company_id}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"Identity Ledger Error: {str(e)}")
+    response = supabase.table("users").select("*").eq("username", creds.username).execute()
+    user = response.data[0] if response.data else None
+    if not user or not auth.verify_password(creds.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid credentials")
+    token = auth.create_access_token(
+        data={"sub": user["username"], "company_id": user["company_id"], "role": user.get("role", "user")})
+    return {"access_token": token, "token_type": "bearer", "username": user["username"],
+            "company_id": user["company_id"]}
 
 
 @app.post("/api/users")
-def create_user(req: RegisterRequest):
+def create_user(req: UserRegister):
+    hashed_pwd = auth.get_password_hash(req.password)
+
+    # 1. Fetch the highest company_id currently in the database
+    res = supabase.table("users").select("company_id").order("company_id", desc=True).limit(1).execute()
+
+    # 2. Sequentially add 1 to the highest ID. If no users exist, default to 3.
+    if res.data and res.data[0].get("company_id") is not None:
+        new_company_id = res.data[0]["company_id"] + 1
+    else:
+        new_company_id = 3
+
+    # 3. Create the Company FIRST to satisfy the Supabase Foreign Key constraint
     try:
-        with engine.connect() as conn:
-            existing = conn.execute(text("SELECT username FROM users WHERE username = :u"),
-                                    {"u": req.username}).fetchone()
-            if existing: raise HTTPException(400, "Username is already taken.")
-            h_pass = auth.get_password_hash(req.password)
-            new_company = conn.execute(text("INSERT INTO companies (name) VALUES (:name) RETURNING id"),
-                                       {"name": req.company_name}).fetchone()
-            clean_cid = new_company[0]
-            conn.execute(
-                text("INSERT INTO users (username, password_hash, role, company_id) VALUES (:u, :p, :r, :cid)"),
-                {"u": req.username, "p": h_pass, "r": req.role, "cid": clean_cid})
-            conn.commit()
-            return {"message": "Account successfully created.", "company_id": clean_cid}
-    except HTTPException:
-        raise
+        supabase.table("companies").insert({
+            "id": new_company_id,
+            "name": req.company_name
+        }).execute()
     except Exception as e:
-        raise HTTPException(500, f"Database Error: {str(e)}")
+        # Fallback just in case your column is named 'company_name' instead of 'name'
+        try:
+            supabase.table("companies").insert({
+                "id": new_company_id,
+                "company_name": req.company_name
+            }).execute()
+        except Exception as inner_e:
+            print(f"Company Creation Error: {inner_e}")
+            raise HTTPException(status_code=500, detail=f"Failed to create company record: {str(inner_e)}")
 
+    # 4. Now it is completely safe to insert the user
+    supabase.table("users").insert(
+        {"username": req.username, "password_hash": hashed_pwd, "role": req.role, "company_id": new_company_id}
+    ).execute()
 
-@app.post("/api/bug")
-async def create_bug(req: CreateBugRequest, current_user=Depends(auth.get_current_user)):
-    import random
-    custom_bug_id = int(time.time()) % 100000 + random.randint(10000000, 90000000)
-    bug_to_insert = {
-        "bug_id": custom_bug_id, "summary": req.bug.summary, "component": req.bug.component,
-        "severity": req.bug.severity, "status": req.bug.status, "company_id": current_user["company_id"],
-        "javascript": {"platform": req.bug.platform}
-    }
-    response = supabase.table("firefox_table").insert(bug_to_insert).execute()
-    if not response.data: raise HTTPException(500, "Failed to save")
-    return response.data[0]
+    return {"message": f"User created successfully with isolated workspace (Company ID: {new_company_id})."}
 
 
 @app.get("/api/hub/overview")
 def get_overview(current_user=Depends(auth.get_current_user)):
-    with engine.connect() as conn:
-        total = conn.execute(text("SELECT COUNT(*) FROM firefox_table")).scalar()
-        critical = conn.execute(text("SELECT COUNT(*) FROM firefox_table WHERE severity ILIKE '%s1%'")).scalar()
-        processed = conn.execute(
-            text("SELECT COUNT(*) FROM firefox_table WHERE status ILIKE '%fix%' OR status ILIKE '%resol%'")).scalar()
-        comp_rows = conn.execute(text(
-            "SELECT component, COUNT(*) as count FROM firefox_table GROUP BY component ORDER BY count DESC LIMIT 5")).fetchall()
-        top_components = [{"name": r[0] or "General", "count": r[1]} for r in comp_rows]
-        recent_rows = conn.execute(
-            text("SELECT bug_id, summary, severity FROM firefox_table ORDER BY bug_id DESC LIMIT 5")).fetchall()
-        recent_bugs = [{"id": r[0], "summary": r[1], "severity": r[2]} for r in recent_rows]
-    return {"stats": {"total_db": total, "analyzed": processed, "critical": critical}, "recent": recent_bugs,
-            "charts": {"components": top_components}}
+    user_company = current_user.get("company_id")
+
+    count_res = supabase.table("firefox_table").select("*", count="exact").eq("company_id", user_company).limit(
+        1).execute()
+    res = supabase.table("firefox_table").select("*").eq("company_id", user_company).order("bug_id", desc=True).limit(
+        500).execute()
+
+    bugs = res.data or []
+    critical_count = len([b for b in bugs if b.get("severity") in ["S1", "CRITICAL"]])
+    components = {}
+    for b in bugs:
+        comp = b.get("component", "General")
+        components[comp] = components.get(comp, 0) + 1
+    top_5 = sorted([{"name": k, "value": v} for k, v in components.items()], key=lambda x: x["value"], reverse=True)[:5]
+
+    return {
+        "stats": {"total_db": count_res.count or 0, "analyzed": count_res.count or 0, "critical": critical_count},
+        "recent": [{"id": b.get("bug_id"), "summary": b.get("summary"), "severity": b.get("severity"),
+                    "status": b.get("status")} for b in bugs[:5]],
+        "charts": {"components": top_5}
+    }
 
 
 @app.get("/api/hub/component_counts")
 def get_component_counts(current_user=Depends(auth.get_current_user)):
-    with engine.connect() as conn:
-        rows = conn.execute(text("SELECT component, COUNT(*) FROM firefox_table GROUP BY component")).fetchall()
-        return {str(r[0]).strip().lower() if r[0] else "general": r[1] for r in rows}
+    return {}
 
 
 @app.get("/api/hub/component_inspector")
-def get_component_inspector(component: str, team: str = "", current_user=Depends(auth.get_current_user)):
-    with engine.connect() as conn:
-        comp_wildcard = f"%{component}%"
-        team_match = team.lower() if team else ""
-        query = text("""
-                     SELECT COUNT(*)
-                     FROM firefox_table
-                     WHERE LOWER(component) = :c
-                        OR LOWER(component) = :t
-                        OR summary ILIKE :wild
-                     """)
-        total = conn.execute(query, {"c": component.lower(), "t": team_match, "wild": comp_wildcard}).scalar()
+def get_component_inspector(component: str, team: str, current_user=Depends(auth.get_current_user)):
+    sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+    user_company = current_user.get("company_id")
 
-        recent_query = text("""
-                            SELECT bug_id, summary, severity, status
-                            FROM firefox_table
-                            WHERE (LOWER(component) = :c OR LOWER(component) = :t OR summary ILIKE :wild)
-                              AND severity IN ('S1', 'CRITICAL')
-                            ORDER BY bug_id DESC
-                            LIMIT 3
-                            """)
-        recent_rows = conn.execute(recent_query,
-                                   {"c": component.lower(), "t": team_match, "wild": comp_wildcard}).fetchall()
-        return {"total": total,
-                "recent_critical": [{"id": r[0], "summary": r[1], "severity": r[2], "status": r[3]} for r in
-                                    recent_rows]}
+    count_res = sb.table("firefox_table").select("*", count="exact").eq("company_id", user_company).ilike("component",
+                                                                                                          f"%{component}%").limit(
+        1).execute()
+    total = count_res.count or 0
+    crit_res = sb.table("firefox_table").select("bug_id, summary, severity, status, component").eq("company_id",
+                                                                                                   user_company).ilike(
+        "component", f"%{component}%").ilike("severity", "%S1%").order("bug_id", desc=True).limit(5).execute()
+    recent = crit_res.data or []
+
+    if total == 0:
+        count_res = sb.table("firefox_table").select("*", count="exact").eq("company_id", user_company).ilike(
+            "component", f"%{team}%").limit(1).execute()
+        total = count_res.count or 0
+        crit_res = sb.table("firefox_table").select("bug_id, summary, severity, status, component").eq("company_id",
+                                                                                                       user_company).ilike(
+            "component", f"%{team}%").ilike("severity", "%S1%").order("bug_id", desc=True).limit(5).execute()
+        recent = crit_res.data or []
+
+    normalized = [{"bug_id": b.get("bug_id") or b.get("id"), "summary": b.get("summary", "No summary"),
+                   "severity": b.get("severity", "S1"), "status": b.get("status", "NEW"),
+                   "component": b.get("component", component)} for b in recent]
+    return {"total": total, "recent_critical": normalized}
 
 
 @app.get("/api/hub/explorer")
-def get_bugs(
-        page: int = 1, limit: int = 10, search: str = "", sort_key: str = "id", sort_dir: str = "desc",
-        sev: str = "", status: str = "", comp: str = "", current_user=Depends(auth.get_current_user)
-):
+def get_bugs(page: int = 1, limit: int = 10, search: str = "", sort_key: str = "id", sort_dir: str = "desc",
+             sev: str = "", status: str = "", comp: str = "", current_user=Depends(auth.get_current_user)):
     offset = (page - 1) * limit
-    valid_sort_keys = {"id": "bug_id", "severity": "severity", "component": "component", "summary": "summary",
-                       "status": "status"}
-    db_sort_key = valid_sort_keys.get(sort_key, "bug_id")
-    db_sort_dir = "DESC" if sort_dir.lower() == "desc" else "ASC"
+    db_sort = "bug_id" if sort_key == "id" else sort_key
 
-    where_clauses = []
-    params = {"limit": limit, "offset": offset}
+    query = supabase.table("firefox_table").select("*", count="exact").eq("company_id", current_user.get("company_id"))
 
-    if search:
-        where_clauses.append("(summary ILIKE :search OR CAST(bug_id AS TEXT) ILIKE :search)")
-        params["search"] = f"%{search}%"
-    if sev:
-        where_clauses.append("severity ILIKE :sev")
-        params["sev"] = f"%{sev}%"
-    if status:
-        where_clauses.append("status ILIKE :status")
-        params["status"] = f"%{status}%"
-    if comp:
-        where_clauses.append("component ILIKE :comp")
-        params["comp"] = f"%{comp}%"
+    if search: query = query.ilike("summary", f"%{search}%")
+    if sev:    query = query.ilike("severity", f"%{sev}%")
+    if status: query = query.ilike("status", f"%{status}%")
+    if comp:   query = query.ilike("component", f"%{comp}%")
 
-    where_stmt = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-
-    with engine.connect() as conn:
-        count_query = text(f"SELECT COUNT(*) FROM firefox_table {where_stmt}")
-        total_records = conn.execute(count_query, params).scalar()
-
-        data_query = text(
-            f"SELECT bug_id, summary, component, severity, status FROM firefox_table {where_stmt} ORDER BY {db_sort_key} {db_sort_dir} LIMIT :limit OFFSET :offset")
-        rows = conn.execute(data_query, params).fetchall()
-
-        return {"total": total_records,
-                "bugs": [{"id": r[0], "summary": r[1], "component": r[2], "severity": r[3], "status": r[4]} for r in
-                         rows]}
+    res = query.order(db_sort, desc=(sort_dir.lower() == "desc")).range(offset, offset + limit - 1).execute()
+    return {"total": res.count or 0, "bugs": [
+        {"id": r.get("bug_id"), "summary": r.get("summary"), "component": r.get("component"),
+         "severity": r.get("severity"), "status": r.get("status")} for r in (res.data or [])]}
 
 
 @app.get("/api/hub/export")
-def export_bugs(
-        search: str = "", sort_key: str = "id", sort_dir: str = "desc",
-        sev: str = "", status: str = "", comp: str = "", current_user=Depends(auth.get_current_user)
-):
-    valid_sort_keys = {"id": "bug_id", "severity": "severity", "component": "component", "summary": "summary",
-                       "status": "status"}
-    db_sort_key = valid_sort_keys.get(sort_key, "bug_id")
-    db_sort_dir = "DESC" if sort_dir.lower() == "desc" else "ASC"
+def export_bugs(search: str = "", sort_key: str = "id", sort_dir: str = "desc", sev: str = "", status: str = "",
+                comp: str = "", current_user=Depends(auth.get_current_user)):
+    db_sort = "bug_id" if sort_key == "id" else sort_key
 
-    where_clauses = []
-    params = {}
+    query = supabase.table("firefox_table").select("*").eq("company_id", current_user.get("company_id"))
 
-    if search:
-        where_clauses.append("(summary ILIKE :search OR CAST(bug_id AS TEXT) ILIKE :search)")
-        params["search"] = f"%{search}%"
-    if sev:
-        where_clauses.append("severity ILIKE :sev")
-        params["sev"] = f"%{sev}%"
-    if status:
-        where_clauses.append("status ILIKE :status")
-        params["status"] = f"%{status}%"
-    if comp:
-        where_clauses.append("component ILIKE :comp")
-        params["comp"] = f"%{comp}%"
+    if search: query = query.ilike("summary", f"%{search}%")
+    res = query.order(db_sort, desc=(sort_dir.lower() == "desc")).limit(1000).execute()
 
-    where_stmt = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-
-    def iter_csv():
-        with engine.connect() as conn:
-            yield "ID,Severity,Component,Summary,Status\n"
-            query = text(
-                f"SELECT bug_id, severity, component, summary, status FROM firefox_table {where_stmt} ORDER BY {db_sort_key} {db_sort_dir}")
-            result = conn.execution_options(yield_per=5000).execute(query, params)
-            for row in result:
-                output = io.StringIO()
-                writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
-                writer.writerow([row[0], row[1], row[2], row[3], row[4]])
-                yield output.getvalue()
-
-    response = StreamingResponse(iter_csv(), media_type="text/csv")
-    response.headers["Content-Disposition"] = "attachment; filename=bug_report_export.csv"
-    return response
-
-
-# --- AI ENDPOINTS ---
-@app.post("/api/predict")
-def run_prediction(req: PredictRequest, current_user=Depends(auth.get_current_user)):
-    sev, conf = "S3", 0.85
-    if "crash" in req.summary.lower() or "fatal" in req.summary.lower(): sev, conf = "S1", 0.94
-    return {"prediction": sev, "confidence": conf, "diagnosis": "Priority inferred via vector analysis.",
-            "team": "Core Engineering"}
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Summary", "Component", "Severity", "Status"])
+    for b in (res.data or []):
+        writer.writerow([b.get("bug_id"), b.get("summary"), b.get("component"), b.get("severity"), b.get("status")])
+    output.seek(0)
+    return StreamingResponse(output, media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=bug_export.csv"})
 
 
 @app.post("/api/analyze_bug")
-def analyze_bug_rag(req: AnalyzeRequest, current_user=Depends(auth.get_current_user)):
-    load_ai()
-    similar_bugs = []
-    if rag_collection:
-        try:
-            results = rag_collection.query(query_texts=[req.bug_text], n_results=4)
-            if results['documents']:
-                for i, doc in enumerate(results['documents'][0]):
-                    meta = results['metadatas'][0][i]
-                    similar_bugs.append({
-                        "id": results['ids'][0][i], "summary": doc, "severity": meta.get("severity", "S3"),
-                        "status": meta.get("status", "Closed"),
-                        "match": int((1 - results['distances'][0][i]) * 100) if 'distances' in results else 85
-                    })
-        except Exception as e:
-            print(f"RAG Query Error: {e}")
-    prediction = {"label": "S1", "confidence": 92} if "crash" in req.bug_text.lower() else {"label": "S3",
-                                                                                            "confidence": 85}
-    return {"severity": prediction, "diagnosis": "Anomaly successfully mapped against historical vector embeddings.",
-            "similar_bugs": similar_bugs}
+async def analyze_bug(bug_text: str = Query(...), current_user=Depends(auth.get_current_user)):
+    try:
+        sev_label, confidence = "S3", 0.85
+        if rf_model is not None and vectorizer is not None:
+            prediction = rf_model.predict(vectorizer.transform([bug_text]))[0]
+            sev_label = str(prediction)
+        similar_bugs = []
+        if len(bug_text.strip()) > 2:
+            similar_bugs = supabase.table("firefox_table").select("*").eq("company_id",
+                                                                          current_user.get("company_id")).ilike(
+                "summary", f"%{bug_text.strip()[:20]}%").limit(5).execute().data
+
+        return {"severity": {"label": sev_label, "confidence": confidence, "action": "Investigate"},
+                "similar_bugs": similar_bugs, "analysis_context": {"method": "Random Forest + RAG"}}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/predict")
+def predict_endpoint(payload: PredictPayload, current_user=Depends(auth.get_current_user)):
+    return predict_severity(payload.summary, payload.component, payload.platform)
+
+
+@app.post("/api/bug")
+async def create_bug(req: CreateBugRequest, current_user=Depends(auth.get_current_user)):
+    bug_to_insert = {"summary": req.bug.summary, "component": req.bug.component, "severity": req.bug.severity,
+                     "status": "NEW", "company_id": current_user.get("company_id")}
+    response = supabase.table("firefox_table").insert(bug_to_insert).execute()
+    return response.data[0] if response.data else {}
+
+
+@app.delete("/api/bug/{bug_id}")
+async def delete_bug(bug_id: int, current_user=Depends(auth.get_current_user)):
+    supabase.table("firefox_table").delete().eq("bug_id", bug_id).eq("company_id",
+                                                                     current_user.get("company_id")).execute()
+    return {"status": "deleted"}
 
 
 @app.post("/api/feedback")
-def submit_feedback(req: FeedbackRequest, current_user=Depends(auth.get_current_user)):
-    supabase.table("feedback").insert({
-        "summary": req.summary, "predicted_severity": req.predicted_severity,
-        "actual_severity": req.actual_severity, "company_id": current_user["company_id"]
-    }).execute()
-    return {"message": "Feedback integrated into model ledger."}
+def submit_feedback(payload: FeedbackPayload, current_user=Depends(auth.get_current_user)):
+    supabase.table("feedback").insert({"summary": payload.summary, "predicted_severity": payload.predicted_severity,
+                                       "actual_severity": payload.actual_severity,
+                                       "company_id": current_user.get("company_id")}).execute()
+    return {"status": "success"}
 
-# --- BULK UPLOAD / RETRAINING ENDPOINTS ---
+
+@app.get("/api/batches")
+def get_batches(current_user=Depends(auth.get_current_user)):
+    res = supabase.table("training_batches").select("*").eq("company_id", current_user.get("company_id")).order(
+        "upload_time", desc=True).execute()
+    return [{"id": b.get("id"), "batch_name": b.get("batch_name", "Unknown"), "bug_count": b.get("bug_count", 0),
+             "status": b.get("status", "completed"), "upload_time": b.get("upload_time")} for b in (res.data or [])]
+
+
+@app.delete("/api/batches/{batch_id}")
+def delete_batch(batch_id: int, current_user=Depends(auth.get_current_user)):
+    supabase.table("training_batches").delete().eq("id", batch_id).eq("company_id",
+                                                                      current_user.get("company_id")).execute()
+    return {"status": "deleted"}
+
+
 @app.post("/api/retrain")
 async def bulk_retrain(background_tasks: BackgroundTasks, company_id: int = Form(...), file: UploadFile = File(...)):
-    if not (file.filename.endswith('.csv') or file.filename.endswith('.json')):
-        raise HTTPException(status_code=400, detail="Only CSV and JSON files are supported.")
-
     try:
         contents = await file.read()
+        df = pd.read_csv(io.BytesIO(contents)) if file.filename.endswith(".csv") else pd.read_json(io.BytesIO(contents))
 
-        if file.filename.endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(contents))
-        else:
-            df = pd.read_json(io.BytesIO(contents))
+        bug_count = len(df)
+        sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-        if 'summary' not in df.columns or 'severity' not in df.columns:
-            raise HTTPException(status_code=400, detail="File must contain 'summary' and 'severity' fields.")
-
-        records = df[['summary', 'severity']].to_dict(orient='records')
-
-        # ⚡ THE FIX: Use SQLAlchemy to write directly to the database, bypassing RLS completely!
-        with engine.connect() as conn:
-            conn.execute(
-                text("""
-                     INSERT INTO training_batches (batch_name, status, company_id, bug_count)
-                     VALUES (:b, :s, :c, :count)
-                     """),
-                {
-                    "b": file.filename,
-                    "s": "completed",
-                    "c": company_id,
-                    "count": len(records)
-                }
-            )
-            conn.commit()
+        sb.table("training_batches").insert({
+            "batch_name": file.filename,
+            "company_id": company_id,
+            "bug_count": bug_count,
+            "status": "completed"
+        }).execute()
 
         temp_csv_path = os.path.join(os.path.dirname(__file__), "temp_upload.csv")
         df.to_csv(temp_csv_path, index=False)
 
         def run_ml_pipeline():
             try:
-                script_path = os.path.join(os.path.dirname(__file__), "../Random Forest ML/Train_Universal.py")
-                subprocess.run([sys.executable, script_path, "--append_csv", temp_csv_path], check=True)
+                subprocess.run(
+                    [sys.executable, os.path.join(os.path.dirname(__file__), "../Random Forest ML/Train_Universal.py"),
+                     "--append_csv", temp_csv_path], check=True)
+                load_models()
+                force_reload_models()
             finally:
-                if os.path.exists(temp_csv_path):
-                    os.remove(temp_csv_path)
+                if os.path.exists(temp_csv_path): os.remove(temp_csv_path)
 
         background_tasks.add_task(run_ml_pipeline)
-        return {"status": "success", "message": f"{len(records)} bugs routed to AI. Main database untouched."}
+        return {"status": "success", "message": f"{bug_count} bugs processed for ML training."}
 
     except Exception as e:
-        print(f"Retrain Error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to process bulk upload.")
+        error_msg = str(e)
+        print(f"❌ Bulk Upload Database Crash: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Database Rejected File: {error_msg}")
 
-@app.get("/api/batches")
-def get_batches():
+
+@app.post("/api/hub/trigger_retrain")
+async def trigger_ml_retrain(current_user=Depends(auth.get_current_user)):
     try:
-        res = supabase.table("training_batches").select("*").order("upload_time", desc=True).limit(10).execute()
-        return res.data
+        ml_dir = os.path.join(BASE_DIR, "../Random Forest ML") if os.path.exists(
+            os.path.join(BASE_DIR, "../Random Forest ML")) else os.path.join(BASE_DIR, "../random_forest_ml")
+        script_path = os.path.join(ml_dir, "Train_Universal.py")
+        if not os.path.exists(script_path): raise HTTPException(status_code=404,
+                                                                detail="Training script not found on server.")
+
+        custom_env = dict(os.environ)
+        custom_env["PYTHONIOENCODING"] = "utf-8"
+        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True, check=True,
+                                encoding="utf-8", env=custom_env)
+
+        load_models()
+        force_reload_models()
+        return {"status": "success", "message": "Model retrained successfully", "logs": result.stdout}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -384,21 +337,20 @@ def get_batches():
 @app.get("/api/hub/ml_metrics")
 def get_ml_metrics():
     try:
-        # Paths to both the active brain and the backup brain
-        metrics_path = os.path.join(BASE_DIR, "../Random Forest ML/rf_metrics.json")
-        old_metrics_path = os.path.join(BASE_DIR, "../Random Forest ML/rf_metrics.json.old")
+        ml_dir = os.path.join(BASE_DIR, "../Random Forest ML") if os.path.exists(
+            os.path.join(BASE_DIR, "../Random Forest ML")) else os.path.join(BASE_DIR, "../random_forest_ml")
+        m_path = os.path.join(ml_dir, "rf_metrics.json")
+        b_path = os.path.join(ml_dir, "baseline_metrics.json")
 
-        data = {"current": None, "previous": None}
+        current_data = json.load(open(m_path)) if os.path.exists(m_path) else None
+        baseline_data = json.load(open(b_path)) if os.path.exists(b_path) else current_data
+        previous_data = json.load(open(m_path + ".old")) if os.path.exists(m_path + ".old") else None
 
-        if os.path.exists(metrics_path):
-            with open(metrics_path, "r") as f:
-                data["current"] = json.load(f)
-
-        if os.path.exists(old_metrics_path):
-            with open(old_metrics_path, "r") as f:
-                data["previous"] = json.load(f)
-
-        return data
+        return {
+            "baseline": baseline_data,
+            "current": current_data,
+            "previous": previous_data
+        }
     except Exception as e:
-        print(f"Metrics fetch error: {e}")
-    return {"current": None, "previous": None}
+        print(f"Error fetching metrics: {e}")
+        return {"baseline": None, "current": None, "previous": None}

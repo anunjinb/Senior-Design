@@ -60,7 +60,7 @@ export default function Login({ onLogin, theme, toggleTheme }) {
             <div className="brand-content">
                 <div className="logo-box-large"><ShieldCheck size={48} color="white"/></div>
                 <h1>BUG PRIORITY <span style={{color:'#3b82f6'}}>OS</span></h1>
-                <p>Enterprise-grade AI infrastructure for defect classification, automated triage, and intelligent telemetry routing.</p>
+                <p>Bug prioritization based on severity project</p>
                 <div className="brand-stat-ent">
                     <Activity size={16} /> <span>System Operational</span>
                 </div>
@@ -78,12 +78,12 @@ export default function Login({ onLogin, theme, toggleTheme }) {
              ) : (
                  <div className="fade-in form-content-wrapper">
                      <h2 className="login-title">
-                        {mode === 'login' && 'Welcome Back'}
-                        {mode === 'register' && 'Create Profile'}
-                        {mode === 'reset' && 'Reset Password'}
+                        {mode === 'login' && 'Welcome back'}
+                        {mode === 'register' && 'Create profile'}
+                        {mode === 'reset' && 'Reset password'}
                      </h2>
                      <p className="login-sub">
-                        {mode === 'login' && 'Authenticate to access the intelligence dashboard.'}
+                        {mode === 'login' && 'Please enter your credentials below:'}
                         {mode === 'register' && 'Deploy a new organization instance.'}
                         {mode === 'reset' && 'Enter your username and new password.'}
                      </p>
@@ -96,13 +96,29 @@ export default function Login({ onLogin, theme, toggleTheme }) {
 
                         <div className="input-group">
                             <Lock size={20} className="input-icon"/>
-                            <input className="sys-input login-input" type="password" placeholder={mode === 'reset' ? "New Password" : "Password"} value={p} onChange={e=>setP(e.target.value)} required/>
+                            <input
+                                className="sys-input login-input"
+                                type="password"
+                                maxLength={72}
+                                placeholder={mode === 'reset' ? "New Password" : "Password"}
+                                value={p}
+                                onChange={e=>setP(e.target.value)}
+                                required
+                            />
                         </div>
 
                         {(mode === 'register' || mode === 'reset') && (
                             <div className="input-group fade-in">
                                 <Lock size={20} className="input-icon"/>
-                                <input className="sys-input login-input" type="password" placeholder="Confirm Password" value={cp} onChange={e=>setCp(e.target.value)} required/>
+                                <input
+                                    className="sys-input login-input"
+                                    type="password"
+                                    maxLength={72}
+                                    placeholder="Confirm Password"
+                                    value={cp}
+                                    onChange={e=>setCp(e.target.value)}
+                                    required
+                                />
                             </div>
                         )}
 
@@ -123,7 +139,7 @@ export default function Login({ onLogin, theme, toggleTheme }) {
                         )}
 
                         <button className="sys-btn full login-btn-ent">
-                            {mode==='login' ? 'AUTHENTICATE' : mode==='register' ? 'INITIALIZE ACCOUNT' : 'UPDATE RECORD'}
+                            {mode==='login' ? 'LOGIN' : mode==='register' ? 'INITIALIZE ACCOUNT' : 'UPDATE CREDENTIAL'}
                             <ArrowRight size={18}/>
                         </button>
                      </form>

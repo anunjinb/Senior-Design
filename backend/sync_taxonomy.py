@@ -1,116 +1,147 @@
-import requests
-import json
-import os
+"""
+ETL Pipeline: Bugzilla Component Teams -> taxonomy.js
+Uses: GET /rest/config/component_teams/{team_name}
+Response shape: { "TeamName": { "ProductName": ["Component A", ...] } }
+"""
+import requests, json, os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_TAXONOMY_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "src", "javascript", "taxonomy.js"))
+FRONTEND_TAXONOMY_PATH = os.path.abspath(
+    os.path.join(BASE_DIR, "..", "frontend", "src", "javascript", "taxonomy.js")
+)
+BUGZILLA_API = "https://bugzilla.mozilla.org/rest/config/component_teams"
+HEADERS = {"User-Agent": "BugPriorityOS-SeniorDesignProject/1.0"}
 
-# 🛡️ ENTERPRISE FAILOVER CACHE
-# If the Mozilla API goes down or blocks the request, the system falls back to this cache automatically.
-FALLBACK_TAXONOMY = {
+TEAM_DESCRIPTIONS = {
+    "DevTools":   "Browser developer tools: debugger, console, inspector, network monitor, and profiling panels.",
+    "Layout":     "The rendering engine that parses CSS/HTML and computes page geometry — flexbox, grid, SVG, and print.",
+    "Networking": "All network I/O: HTTP, DNS, WebSockets, TLS certificates, caching, and cookies.",
+    "Firefox":    "The Firefox browser UI layer — tabs, address bar, bookmarks, sync, accessibility, and updates.",
+    "Core":       "The Gecko browser engine core: SpiderMonkey JS engine, DOM, graphics, IPC, and platform services.",
+}
+
+# Cosmetic grouping for the UI. Keys = category labels shown in Directory cards.
+# Component names here must match Bugzilla exactly (they will also match the DB).
+CATEGORY_RULES = {
     "DevTools": {
-        "A-M": ["Console", "Debugger", "General", "Inspector", "JSON Viewer", "Marionette Client and Harness"],
-        "N-Z": ["Netmonitor", "Style Editor", "View Source", "geckodriver", "web-platform-tests"]
+        "Core Tools":          ["General","Debugger","Console","Inspector","Style Editor","Netmonitor","Source Editor","Responsive Design Mode"],
+        "Panel & Views":       ["Object Inspector","Storage Inspector","JSON Viewer","DOM","Application Panel","about:debugging","Shared Components","Framework","Documentation"],
+        "Inspector Sub-tools": ["Inspector: Rules","Inspector: Animations","Inspector: Changes","Inspector: Layout","Inspector: Compatibility"],
+        "Runtime & Source":    ["geckodriver","View Source"],
     },
     "Layout": {
-        "A-M": ["CSS Parsing and Computation", "CSS Transitions and Animations", "Layout", "Layout: Flexbox",
-                "Layout: Grid", "MathML"],
-        "N-Z": ["Print Preview", "Printing: Output", "Printing: Setup", "SVG"]
+        "Box Model & Flow":  ["Layout","Layout: Block and Inline","Layout: Floats","Layout: Positioned","Layout: Scrolling and Overflow","Layout: Columns","Layout: Ruby"],
+        "Flexbox & Grid":    ["Layout: Flexbox","Layout: Grid","Layout: Generated Content, Lists, and Counters"],
+        "CSS & Rendering":   ["CSS Parsing and Computation","CSS Transitions and Animations","DOM: CSS Object Model","DOM: Animation","Panning and Zooming"],
+        "Media & Embedded":  ["Layout: Images, Video, and HTML Frames","Layout: Form Controls","Layout: Tables","Layout: Text and Fonts","MathML","SVG"],
+        "Print":             ["Printing: Output","Printing: Setup","Print Preview"],
     },
     "Networking": {
-        "A-M": ["Cache", "Certificates", "Cookies", "DNS", "HTTP"],
-        "N-Z": ["TLS/SSL", "WebSockets"]
+        "Protocols":       ["Networking","HTTP","WebSockets","DNS","WebRTC"],
+        "Security & Auth": ["Networking: TLS","Certificates","Security"],
+        "Cache & Storage": ["Cache","Cookies","Networking: Cache"],
     },
-    "Frontend": {
-        "A-M": ["Accessibility", "Address Bar", "Bookmarks", "Menus"],
-        "N-Z": ["Screen Readers", "Tabs", "Theme"]
+    "Firefox": {
+        "Navigation & Tabs":  ["Tabbed Browser","Address Bar","Menus","Toolbars and Customization"],
+        "User Features":      ["Bookmarks","Downloads","Firefox Sync","New Tab Page","Pocket"],
+        "Accessibility":      ["Accessibility","Screen Readers","Theme"],
+        "Settings & Updates": ["Preferences","Application Update","Installer"],
     },
     "Core": {
-        "A-M": ["DOM Core", "DOM Events", "DOM Mutation", "Garbage Collection"],
-        "N-Z": ["SpiderMonkey", "WASM"]
+        "JavaScript Engine": ["JavaScript Engine","JavaScript: GC","JavaScript Engine: JIT","WebAssembly"],
+        "DOM":               ["DOM: Core & HTML","DOM: Events","DOM: Workers","DOM: Push Notifications","DOM: Service Workers","DOM: Storage"],
+        "Graphics":          ["Graphics","Graphics: OffscreenCanvas","Canvas: 2D","WebGL"],
+        "Platform":          ["Gecko Profiler","Memory Allocator","XPCOM","IPC","Internationalization"],
+    },
+}
+
+FALLBACK_TAXONOMY = {
+    "DevTools": {
+        "Core Tools": ["General","Debugger","Console","Inspector","Style Editor","Netmonitor","Source Editor","Responsive Design Mode"],
+        "Panel & Views": ["Object Inspector","Storage Inspector","JSON Viewer","DOM","Application Panel","about:debugging","Shared Components","Framework","Documentation"],
+        "Inspector Sub-tools": ["Inspector: Rules","Inspector: Animations","Inspector: Changes","Inspector: Layout","Inspector: Compatibility"],
+        "Runtime & Source": ["geckodriver","View Source"]
+    },
+    "Layout": {
+        "Box Model & Flow": ["Layout","Layout: Block and Inline","Layout: Floats","Layout: Positioned","Layout: Scrolling and Overflow","Layout: Columns","Layout: Ruby"],
+        "Flexbox & Grid": ["Layout: Flexbox","Layout: Grid","Layout: Generated Content, Lists, and Counters"],
+        "CSS & Rendering": ["CSS Parsing and Computation","CSS Transitions and Animations","DOM: CSS Object Model","DOM: Animation","Panning and Zooming"],
+        "Media & Embedded": ["Layout: Images, Video, and HTML Frames","Layout: Form Controls","Layout: Tables","Layout: Text and Fonts","MathML","SVG"],
+        "Print": ["Printing: Output","Printing: Setup","Print Preview"]
+    },
+    "Networking": {
+        "Protocols": ["Networking","HTTP","WebSockets","DNS","WebRTC"],
+        "Security & Auth": ["Networking: TLS","Certificates","Security"],
+        "Cache & Storage": ["Cache","Cookies","Networking: Cache"]
+    },
+    "Firefox": {
+        "Navigation & Tabs": ["Tabbed Browser","Address Bar","Menus","Toolbars and Customization"],
+        "User Features": ["Bookmarks","Downloads","Firefox Sync","New Tab Page","Pocket"],
+        "Accessibility": ["Accessibility","Screen Readers","Theme"],
+        "Settings & Updates": ["Preferences","Application Update","Installer"]
+    },
+    "Core": {
+        "JavaScript Engine": ["JavaScript Engine","JavaScript: GC","JavaScript Engine: JIT","WebAssembly"],
+        "DOM": ["DOM: Core & HTML","DOM: Events","DOM: Workers","DOM: Push Notifications","DOM: Service Workers","DOM: Storage"],
+        "Graphics": ["Graphics","Graphics: OffscreenCanvas","Canvas: 2D","WebGL"],
+        "Platform": ["Gecko Profiler","Memory Allocator","XPCOM","IPC","Internationalization"]
     }
 }
 
-FALLBACK_DESCRIPTIONS = {
-    "DevTools": "Tools utilized by web developers to debug, inspect, and profile web applications.",
-    "Layout": "The engine responsible for parsing HTML/CSS and calculating the visual geometry of the page.",
-    "Networking": "Handles all HTTP, DNS, caching, and lower-level socket connections.",
-    "Frontend": "The user-facing Firefox interface, including tabs, the URL bar, and bookmarking systems.",
-    "Core": "The deep browser engine, including the SpiderMonkey JavaScript compiler and DOM manipulation."
-}
+
+def fetch_team_components(team_name):
+    """Fetch and flatten all components for a Bugzilla team."""
+    url = f"{BUGZILLA_API}/{team_name}"
+    r = requests.get(url, headers=HEADERS, timeout=10)
+    r.raise_for_status()
+    data = r.json()
+    all_comps = []
+    for product_comps in data.get(team_name, {}).values():
+        all_comps.extend(product_comps)
+    return all_comps
+
+
+def apply_grouping(team_name, live_components):
+    """Group flat component list into UI category buckets using CATEGORY_RULES."""
+    rules = CATEGORY_RULES.get(team_name, {})
+    result = {cat: [] for cat in rules}
+    assigned = set()
+    for cat, known in rules.items():
+        for comp in live_components:
+            if comp in known:
+                result[cat].append(comp)
+                assigned.add(comp)
+    unassigned = [c for c in live_components if c not in assigned]
+    if unassigned:
+        result["Other"] = unassigned
+    return {k: v for k, v in result.items() if v}
 
 
 def fetch_and_build_taxonomy():
-    print("📡 [ETL PIPELINE] Connecting to Mozilla Bugzilla REST API...")
-
+    print("📡 [ETL] Fetching from Bugzilla component_teams API...")
     taxonomy_data = {}
-    team_descriptions = {}
-    success = False
-
     try:
-        # Added User-Agent and specific include_fields to prevent Mozilla from blocking or truncating the javascript
-        url = "https://bugzilla.mozilla.org/rest/product?names=Firefox,Core,DevTools,Toolkit,NSS&include_fields=name,description,components.name,components.is_active"
-        headers = {'User-Agent': 'BugPriorityOS-SeniorDesignProject/1.0'}
-
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        raw_data = response.json()
-
-        products = raw_data.get("products", [])
-        if not products:
-            raise ValueError("Mozilla API returned an empty product list.")
-
-        for product in products:
-            team_name = product.get("name")
-            description = product.get("description", "Core subsystem architecture.")
-            team_descriptions[team_name] = description
-
-            taxonomy_data[team_name] = {"A-M": [], "N-Z": []}
-
-            for comp in product.get("components", []):
-                comp_name = comp.get("name")
-                if not comp.get("is_active"):
-                    continue
-                if comp_name[0].upper() < 'N':
-                    taxonomy_data[team_name]["A-M"].append(comp_name)
-                else:
-                    taxonomy_data[team_name]["N-Z"].append(comp_name)
-
-        # Remove empty teams/categories
-        for team in list(taxonomy_data.keys()):
-            taxonomy_data[team] = {k: v for k, v in taxonomy_data[team].items() if v}
-            if not taxonomy_data[team]:
-                del taxonomy_data[team]
-
-        if len(taxonomy_data) > 0:
-            success = True
-            print("✅ [ETL PIPELINE] Live Data Extracted & Transformed successfully!")
-        else:
-            raise ValueError("All components filtered out. Resulting javascript was empty.")
-
+        for team in ["DevTools", "Layout", "Networking", "Firefox", "Core"]:
+            print(f"  → {team}...")
+            comps = fetch_team_components(team)
+            taxonomy_data[team] = apply_grouping(team, comps)
+            print(f"    ✓ {len(comps)} components")
+        print("✅ [ETL] Live fetch complete!")
     except Exception as e:
-        print(f"⚠️ [ETL PIPELINE] Live sync failed: {e}")
-        print("🔄 [ETL PIPELINE] Engaging Enterprise Fallback Cache (Failover Mode)...")
+        print(f"⚠️  [ETL] Live fetch failed: {e}\n🔄  Using fallback cache...")
         taxonomy_data = FALLBACK_TAXONOMY
-        team_descriptions = FALLBACK_DESCRIPTIONS
-        success = True
 
-    # 3. LOAD: Write it securely to the React frontend
-    if success:
-        print(f"💾 [ETL PIPELINE] Writing taxonomy to {FRONTEND_TAXONOMY_PATH}")
-
-        js_content = f"""// AUTO-GENERATED BY BACKEND ETL PIPELINE
-// Do not edit manually. Data synchronized directly from Bugzilla REST API.
-
-export const mozillaTaxonomy = {json.dumps(taxonomy_data, indent=2)};
-
-export const teamDescriptions = {json.dumps(team_descriptions, indent=2)};
-"""
-        os.makedirs(os.path.dirname(FRONTEND_TAXONOMY_PATH), exist_ok=True)
-        with open(FRONTEND_TAXONOMY_PATH, "w", encoding="utf-8") as f:
-            f.write(js_content)
-
-        print("✅ [ETL PIPELINE] Frontend Sync Complete!")
+    js_content = (
+        "// AUTO-GENERATED BY BACKEND ETL PIPELINE\n"
+        "// Source: https://bugzilla.mozilla.org/rest/config/component_teams/{team}\n"
+        "// Component names mirror firefox_table.component in Supabase.\n\n"
+        f"export const mozillaTaxonomy = {json.dumps(taxonomy_data, indent=2)};\n\n"
+        f"export const teamDescriptions = {json.dumps(TEAM_DESCRIPTIONS, indent=2)};\n"
+    )
+    os.makedirs(os.path.dirname(FRONTEND_TAXONOMY_PATH), exist_ok=True)
+    with open(FRONTEND_TAXONOMY_PATH, "w", encoding="utf-8") as f:
+        f.write(js_content)
+    print(f"💾 [ETL] Written to {FRONTEND_TAXONOMY_PATH}")
 
 
 if __name__ == "__main__":

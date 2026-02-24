@@ -27,9 +27,10 @@ class TrainingBatch(Base):
     __tablename__ = "training_batches"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     company_id = Column(Integer, ForeignKey("companies.id"))
-    filename = Column(String)
-    record_count = Column(Integer)
-    accuracy = Column(Float)
+    # ⚡ FIXED: Exact column names from your Supabase table
+    batch_name = Column(String)
+    bug_count = Column(Integer)
+    status = Column(String)
     upload_time = Column(DateTime, default=datetime.utcnow)
 
 class Feedback(Base):

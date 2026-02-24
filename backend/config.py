@@ -1,4 +1,5 @@
 import os
+
 # --- DATABASE CONNECTION ---
 DB = {
     "dbname": "bugbug_data",
@@ -7,20 +8,24 @@ DB = {
     "host": "127.0.0.1",
     "port": "5432"
 }
+
 # --- ML ARTIFACT PATHS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# FIX: Go up one level (..) to find the folder in the root directory
-ML_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "random_forest_ml"))
 
+# Safely resolve the ML directory (handles folder naming differences)
+ML_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "Random Forest ML"))
+if not os.path.exists(ML_DIR):
+    ML_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "random_forest_ml"))
+
+# ⚡ FIXED: Models are saved directly in the backend folder!
+# Only the metrics JSON lives in the ML folder.
 ART_RF = {
-    "model": os.path.join(ML_DIR, "rf_model.pkl"),
-    "vec": os.path.join(ML_DIR, "tfidf_vectorizer.pkl"),
-    "enc": os.path.join(ML_DIR, "label_encoders.pkl"),
+    "model": os.path.join(BASE_DIR, "rf_model.pkl"),
+    "vec": os.path.join(BASE_DIR, "tfidf_vectorizer.pkl"),
     "met": os.path.join(ML_DIR, "rf_metrics.json")
 }
+
 # --- ML CONSTANTS ---
-META = ["component", "product", "priority", "platform", "op_sys", "type", "resolution", "status"]
-FLAGS = ["has_crash", "is_accessibility", "is_regression", "is_intermittent", "has_patch"]
 TOP_SEV = ["S1", "S2", "S3", "S4"]
 
 # --- BUSINESS LOGIC MAPPINGS ---

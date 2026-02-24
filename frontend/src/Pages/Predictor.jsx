@@ -2,16 +2,23 @@ import { useState } from 'react';
 import axios from 'axios';
 import { BrainCircuit, Terminal, CheckCircle } from 'lucide-react';
 
+const TAXONOMY = {
+  "DevTools": ["General", "Debugger", "Console", "Inspector", "Style Editor", "Netmonitor", "Source Editor", "Responsive Design Mode", "Object Inspector", "Storage Inspector", "JSON Viewer", "DOM", "Application Panel", "about:debugging", "geckodriver", "View Source"],
+  "Layout": ["Layout", "Layout: Flexbox", "Layout: Grid", "CSS Parsing and Computation", "CSS Transitions and Animations", "MathML", "SVG", "Print Preview", "Printing: Output", "Printing: Setup"],
+  "Networking": ["Networking", "HTTP", "WebSockets", "DNS", "WebRTC", "Networking: TLS", "Certificates", "Security", "Cache", "Cookies"],
+  "Firefox": ["Tabbed Browser", "Address Bar", "Bookmarks", "Accessibility", "Theme", "Preferences", "Downloads"],
+  "Core": ["JavaScript Engine", "JavaScript: GC", "WebAssembly", "DOM: Core & HTML", "DOM: Events", "DOM: Workers", "Graphics", "WebGL", "Gecko Profiler", "XPCOM", "IPC"]
+};
+
 export default function MLPredictor({ user }) {
   const [summary, setSummary] = useState("");
-  const [component, setComponent] = useState("Frontend");
+  const [component, setComponent] = useState("Layout"); // Default set to a valid Firefox component
   const [platform, setPlatform] = useState("Windows");
   const [res, setRes] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
 
-  const components = ["Frontend", "Backend", "Database", "Networking", "Security", "DevTools", "Core"];
   const platforms = ["Windows", "MacOS", "Linux", "Android", "iOS"];
 
   const getAuthHeader = () => {
@@ -88,7 +95,11 @@ export default function MLPredictor({ user }) {
                 <div>
                     <label style={{fontSize:12, fontWeight:700, color:'#64748b', marginBottom:6, display:'block'}}>COMPONENT</label>
                     <select className="sys-input" value={component} onChange={e=>setComponent(e.target.value)}>
-                        {components.map(c => <option key={c} value={c}>{c}</option>)}
+                        {Object.entries(TAXONOMY).map(([team, comps]) => (
+                            <optgroup key={team} label={team.toUpperCase()}>
+                                {comps.map(c => <option key={c} value={c}>{c}</option>)}
+                            </optgroup>
+                        ))}
                     </select>
                 </div>
                 <div>

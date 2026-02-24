@@ -117,8 +117,14 @@ export default function Explorer({ user, initialQuery = "", onNavigate }) {
                <option value="">Any Status</option><option value="NEW">New</option><option value="UNCONFIRMED">Unconfirmed</option><option value="RESOLVED">Resolved</option><option value="VERIFIED">Verified</option>
            </select>
 
+           {/* ⚡ FIXED: Added correct Mozilla Team Filters here */}
            <select className="sys-input" value={compFilter} onChange={e => {setCompFilter(e.target.value); setPage(1);}} style={{ width: 160, marginBottom: 0, height: 42, border: 'none', background: 'var(--input-bg)' }}>
-               <option value="">Any Component</option><option value="Core">Core</option><option value="DevTools">DevTools</option><option value="Frontend">Frontend</option><option value="Security">Security</option><option value="Layout">Layout</option>
+               <option value="">Any Component</option>
+               <option value="DevTools">DevTools</option>
+               <option value="Layout">Layout</option>
+               <option value="Networking">Networking</option>
+               <option value="Firefox">Firefox UI</option>
+               <option value="Core">Core Engine</option>
            </select>
 
            <button className="sys-btn outline" onClick={handleExport} disabled={exporting} style={{padding:'0 16px', height: 42, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--card-bg)'}}>

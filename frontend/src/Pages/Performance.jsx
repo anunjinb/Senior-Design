@@ -2,31 +2,19 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
     BrainCircuit, Target, Crosshair, Activity,
-    TrendingUp, Database, Clock, ShieldCheck, Zap, History
+    TrendingUp, Database, Clock, ShieldCheck, Zap, History, Globe
 } from 'lucide-react';
 import {
-    LineChart, Line, BarChart, Bar, RadarChart, PolarGrid,
+    BarChart, Bar, RadarChart, PolarGrid,
     PolarAngleAxis, PolarRadiusAxis, Radar, XAxis, YAxis,
-    Tooltip, ResponsiveContainer, CartesianGrid, Cell
+    Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts';
-
-const historicalTrend = [
-    { epoch: 'v1.0', accuracy: 78.2, f1: 75.1 }, { epoch: 'v1.1', accuracy: 81.4, f1: 79.2 },
-    { epoch: 'v1.2', accuracy: 84.1, f1: 82.5 }, { epoch: 'v2.0', accuracy: 89.5, f1: 88.1 },
-    { epoch: 'v2.1', accuracy: 92.3, f1: 91.8 }, { epoch: 'Live', accuracy: 94.7, f1: 94.2 }
-];
 
 const classMetrics = [
     { subject: 'S1 (Critical)', precision: 95, recall: 98, fullMark: 100 },
     { subject: 'S2 (High)', precision: 88, recall: 85, fullMark: 100 },
     { subject: 'S3 (Normal)', precision: 92, recall: 94, fullMark: 100 },
     { subject: 'S4 (Low)', precision: 85, recall: 82, fullMark: 100 },
-];
-
-const featureImportance = [
-    { name: 'crash', weight: 0.85 }, { name: 'memory leak', weight: 0.78 },
-    { name: 'freeze', weight: 0.72 }, { name: 'security', weight: 0.68 },
-    { name: 'typo', weight: 0.25 }, { name: 'color', weight: 0.15 }
 ];
 
 const confusionMatrix = [
@@ -38,39 +26,56 @@ const confusionMatrix = [
 const MAX_MATRIX_VAL = 17850;
 
 export default function Performance() {
-  const [modelData, setModelData] = useState({ current: null, previous: null });
-  const [viewVersion, setViewVersion] = useState('current');
+  const [modelData, setModelData] = useState({ baseline: null, current: null, previous: null });
+  const [viewVersion, setViewVersion] = useState('enterprise');
 
-  // Fallback data for presentation if backend isn't connected
   const fallbackCurrent = {
-      accuracy: 0.947, f1_score: 0.942, precision: 0.951, recall: 0.938,
-      dataset_size: 200000, status: "Active Model", last_trained: new Date().toLocaleString()
+      accuracy: 0.863, f1_score: 0.858, precision: 0.860, recall: 0.855,
+      dataset_size: 1000, status: "Active Model (Demo Batch)", last_trained: new Date().toLocaleString()
   };
   const fallbackPrevious = {
-      accuracy: 0.923, f1_score: 0.918, precision: 0.925, recall: 0.910,
-      dataset_size: 185000, status: "Archived Baseline", last_trained: "Previous Epoch"
+      accuracy: 0.841, f1_score: 0.835, precision: 0.838, recall: 0.830,
+      dataset_size: 1000, status: "Archived Demo Baseline", last_trained: "Previous Epoch"
+  };
+
+  const fetchMetrics = async () => {
+      try {
+          const token = localStorage.getItem("token");
+          const res = await axios.get('/api/hub/ml_metrics', { headers: { Authorization: `Bearer ${token}` } });
+
+          if (res.data && res.data.current) {
+              setModelData({
+                  baseline: res.data.baseline || res.data.current,
+                  current: res.data.current,
+                  previous: res.data.previous
+              });
+          } else {
+              setModelData({ baseline: fallbackCurrent, current: fallbackCurrent, previous: fallbackPrevious });
+          }
+      } catch (e) {
+          setModelData({ baseline: fallbackCurrent, current: fallbackCurrent, previous: fallbackPrevious });
+      }
   };
 
   useEffect(() => {
-      const fetchMetrics = async () => {
-          try {
-              const token = localStorage.getItem("token");
-              const res = await axios.get('/api/hub/ml_metrics', { headers: { Authorization: `Bearer ${token}` } });
-
-              if (res.data && res.data.current) {
-                  setModelData({ current: res.data.current, previous: res.data.previous });
-              } else {
-                  setModelData({ current: fallbackCurrent, previous: fallbackPrevious });
-              }
-          } catch (e) {
-              setModelData({ current: fallbackCurrent, previous: fallbackPrevious });
-          }
-      };
       fetchMetrics();
   }, []);
 
-  const activeMetrics = viewVersion === 'current' ? modelData.current : modelData.previous;
-  const metricsToUse = activeMetrics || fallbackCurrent;
+  const baseMetrics = modelData.baseline || fallbackCurrent;
+  const currMetrics = modelData.current || fallbackCurrent;
+  const prevMetrics = modelData.previous || fallbackPrevious;
+
+  let metricsToUse;
+  if (viewVersion === 'enterprise') metricsToUse = baseMetrics;
+  else if (viewVersion === 'current') metricsToUse = currMetrics;
+  else metricsToUse = prevMetrics;
+
+  const comparisonData = [
+      { name: 'Accuracy', Enterprise: baseMetrics.accuracy * 100, Previous: prevMetrics.accuracy * 100, Active: currMetrics.accuracy * 100 },
+      { name: 'F1-Score', Enterprise: baseMetrics.f1_score * 100, Previous: prevMetrics.f1_score * 100, Active: currMetrics.f1_score * 100 },
+      { name: 'Precision', Enterprise: baseMetrics.precision * 100, Previous: prevMetrics.precision * 100, Active: currMetrics.precision * 100 },
+      { name: 'Recall', Enterprise: baseMetrics.recall * 100, Previous: prevMetrics.recall * 100, Active: currMetrics.recall * 100 }
+  ];
 
   const formatPct = (val) => `${(val * 100).toFixed(1)}%`;
 
@@ -82,10 +87,9 @@ export default function Performance() {
       return `rgb(${r}, ${g}, ${b})`;
   };
 
-  // Calculates the delta improvement (+/-) between the retrained model and the old one
   const getDelta = (key) => {
-      if (viewVersion !== 'current' || !modelData.previous || !modelData.current) return null;
-      const diff = (modelData.current[key] - modelData.previous[key]) * 100;
+      if (viewVersion === 'enterprise' || viewVersion === 'previous') return null;
+      const diff = (currMetrics[key] - prevMetrics[key]) * 100;
       if (diff === 0) return null;
       const sign = diff > 0 ? '+' : '';
       const color = diff > 0 ? 'var(--success)' : 'var(--danger)';
@@ -93,7 +97,7 @@ export default function Performance() {
   };
 
   return (
-    <div className="page-content fade-in">
+    <div className="page-content fade-in" style={{ position: 'relative' }}>
       <div className="explorer-header" style={{ marginBottom: 30, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
            <h1 style={{fontSize: 24, fontWeight: 800, margin: 0, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: 10}}>
@@ -102,18 +106,20 @@ export default function Performance() {
            <span style={{fontSize: 13, color: 'var(--text-sec)'}}>Live telemetry, feature weights, and evaluation metrics for the Random Forest classifier.</span>
         </div>
 
-        {/* MODEL A/B TOGGLE UI */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
-            <div className="segmented-control" style={{ margin: 0, width: 320, padding: 4 }}>
-                <button className={`segment-btn ${viewVersion === 'current' ? 'active' : ''}`} onClick={() => setViewVersion('current')} style={{ padding: '8px 12px' }}>
-                    <Zap size={14}/> Active Build
+            <div className="segmented-control" style={{ margin: 0, padding: 4, display: 'flex', gap: 4 }}>
+                <button className={`segment-btn ${viewVersion === 'enterprise' ? 'active' : ''}`} onClick={() => setViewVersion('enterprise')} style={{ padding: '8px 12px' }}>
+                    <Globe size={14}/> Main brain
                 </button>
-                <button className={`segment-btn ${viewVersion === 'previous' ? 'active' : ''}`} onClick={() => setViewVersion('previous')} disabled={!modelData.previous} style={{ padding: '8px 12px', opacity: !modelData.previous ? 0.5 : 1 }}>
-                    <History size={14}/> Previous Build
+                <button className={`segment-btn ${viewVersion === 'current' ? 'active' : ''}`} onClick={() => setViewVersion('current')} style={{ padding: '8px 12px' }}>
+                    <Zap size={14}/> Active build
+                </button>
+                <button className={`segment-btn ${viewVersion === 'previous' ? 'active' : ''}`} onClick={() => setViewVersion('previous')} style={{ padding: '8px 12px' }}>
+                    <History size={14}/> Previous
                 </button>
             </div>
-            <div className="live-pill" style={{ background: viewVersion === 'current' ? 'rgba(16,185,129,0.1)' : 'var(--hover-bg)', color: viewVersion === 'current' ? 'var(--success)' : 'var(--text-sec)', borderColor: viewVersion === 'current' ? 'rgba(16,185,129,0.3)' : 'var(--border)' }}>
-                {viewVersion === 'current' ? <span className="pulse-dot"></span> : <History size={10} />}
+            <div className="live-pill" style={{ background: viewVersion === 'enterprise' ? 'rgba(56,189,248,0.1)' : viewVersion === 'current' ? 'rgba(16,185,129,0.1)' : 'var(--hover-bg)', color: viewVersion === 'enterprise' ? '#38bdf8' : viewVersion === 'current' ? 'var(--success)' : 'var(--text-sec)', borderColor: viewVersion === 'enterprise' ? 'rgba(56,189,248,0.3)' : viewVersion === 'current' ? 'rgba(16,185,129,0.3)' : 'var(--border)' }}>
+                {viewVersion === 'enterprise' ? <Globe size={10} /> : viewVersion === 'current' ? <span className="pulse-dot"></span> : <History size={10} />}
                 {metricsToUse.status}
             </div>
         </div>
@@ -147,21 +153,35 @@ export default function Performance() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 24, marginBottom: 24 }}>
-          <div className="sys-card" style={{ padding: 24, opacity: viewVersion === 'previous' ? 0.7 : 1, transition: '0.3s' }}>
-              <h3 style={{fontSize: 12, fontWeight: 700, color: 'var(--text-sec)', marginBottom: 20, textTransform: 'uppercase', letterSpacing: 1}}>Historical Training Trend</h3>
+          <div className="sys-card" style={{ padding: 24, transition: '0.3s' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <h3 style={{fontSize: 12, fontWeight: 700, color: 'var(--text-sec)', margin: 0, textTransform: 'uppercase', letterSpacing: 1}}>
+                      Cross-Build Performance
+                  </h3>
+                  <div style={{ display: 'flex', gap: 12, fontSize: 11, fontWeight: 700 }}>
+                      <span style={{ color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 4, background: '#38bdf8' }}></span> Main brain</span>
+                      <span style={{ color: 'var(--text-sec)', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 4, background: 'var(--text-sec)' }}></span> Previous</span>
+                      <span style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 4, background: 'var(--accent)' }}></span> Active</span>
+                  </div>
+              </div>
               <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={historicalTrend} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <BarChart data={comparisonData} margin={{ top: 5, right: 0, bottom: 5, left: -20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                      <XAxis dataKey="epoch" stroke="var(--text-sec)" fontSize={11} tickLine={false} axisLine={false} />
+                      <XAxis dataKey="name" stroke="var(--text-sec)" fontSize={11} tickLine={false} axisLine={false} />
                       <YAxis domain={[70, 100]} stroke="var(--text-sec)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(tick) => `${tick}%`} />
-                      <Tooltip contentStyle={{borderRadius: 8, border:'1px solid var(--border)', background:'var(--card-bg)', color:'var(--text-main)'}} />
-                      <Line type="monotone" dataKey="accuracy" name="Accuracy" stroke="var(--accent)" strokeWidth={3} dot={{r: 4, fill: 'var(--accent)'}} />
-                      <Line type="monotone" dataKey="f1" name="F1-Score" stroke="var(--success)" strokeWidth={3} dot={{r: 4, fill: 'var(--success)'}} />
-                  </LineChart>
+                      <Tooltip
+                          contentStyle={{borderRadius: 8, border:'1px solid var(--border)', background:'var(--card-bg)', color:'var(--text-main)'}}
+                          formatter={(value) => `${value.toFixed(1)}%`}
+                          cursor={{fill: 'var(--hover-bg)'}}
+                      />
+                      <Bar dataKey="Enterprise" fill="#38bdf8" radius={[4, 4, 0, 0]} barSize={12} opacity={0.8} />
+                      <Bar dataKey="Previous" fill="var(--text-sec)" radius={[4, 4, 0, 0]} barSize={12} opacity={0.5} />
+                      <Bar dataKey="Active" fill="var(--accent)" radius={[4, 4, 0, 0]} barSize={12} />
+                  </BarChart>
               </ResponsiveContainer>
           </div>
 
-          <div className="sys-card" style={{ padding: 24, opacity: viewVersion === 'previous' ? 0.7 : 1, transition: '0.3s' }}>
+          <div className="sys-card" style={{ padding: 24, transition: '0.3s' }}>
               <h3 style={{fontSize: 12, fontWeight: 700, color: 'var(--text-sec)', marginBottom: 0, textTransform: 'uppercase', letterSpacing: 1}}>Class Distribution</h3>
               <ResponsiveContainer width="100%" height={300}>
                   <RadarChart cx="50%" cy="50%" outerRadius="70%" data={classMetrics}>
@@ -177,8 +197,7 @@ export default function Performance() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-          {/* SOPHISTICATED CONFUSION MATRIX */}
-          <div className="sys-card" style={{ padding: 24, opacity: viewVersion === 'previous' ? 0.7 : 1, transition: '0.3s' }}>
+          <div className="sys-card" style={{ padding: 24, transition: '0.3s' }}>
               <h3 style={{fontSize: 12, fontWeight: 700, color: 'var(--text-sec)', marginBottom: 30, textTransform: 'uppercase', letterSpacing: 1}}>Test Set Confusion Matrix</h3>
 
               <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -218,23 +237,20 @@ export default function Performance() {
                           Predicted Severity
                       </div>
                   </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: 20, height: 200 }}>
-                      <div style={{ fontSize: 10, color: 'var(--text-sec)', marginBottom: 6, fontWeight: 700 }}>18k</div>
-                      <div style={{ flex: 1, width: 14, background: 'linear-gradient(to top, rgb(4,43,89), rgb(255,255,255))', borderRadius: 4, border: '1px solid var(--border)' }}></div>
-                      <div style={{ fontSize: 10, color: 'var(--text-sec)', marginTop: 6, fontWeight: 700 }}>0</div>
-                  </div>
               </div>
           </div>
 
           <div className="sys-card" style={{ padding: 24, background: 'var(--hover-bg)' }}>
-              <h3 style={{fontSize: 12, fontWeight: 700, color: 'var(--text-sec)', marginBottom: 24, textTransform: 'uppercase', letterSpacing: 1}}>Training Meta-Data</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+                  <h3 style={{fontSize: 12, fontWeight: 700, color: 'var(--text-sec)', margin: 0, textTransform: 'uppercase', letterSpacing: 1}}>Training Meta-Data</h3>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                      <div style={{ background: 'var(--card-bg)', padding: 12, borderRadius: 12, border: '1px solid var(--border)' }}><Database size={20} color="var(--accent)"/></div>
+                      <div style={{ background: 'var(--card-bg)', padding: 12, borderRadius: 12, border: '1px solid var(--border)' }}><Database size={20} color={viewVersion === 'enterprise' ? '#38bdf8' : 'var(--accent)'}/></div>
                       <div>
                           <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-sec)' }}>TRAINING VOLUME</div>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-main)' }}>{metricsToUse.dataset_size.toLocaleString()} Verified Bug Reports</div>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-main)' }}>{metricsToUse.dataset_size?.toLocaleString() || 0} Verified Bug Reports</div>
                       </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>

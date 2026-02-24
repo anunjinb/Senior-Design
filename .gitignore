@@ -14,6 +14,7 @@ frontend/package.json
 # --- AI Models (Too large for Git) ---
 backend/*.pkl
 backend/*pkl.old
+
 # --- Databases & Vector Stores ---
 # This keeps your local javascript from overwriting your teammates' javascript
 *.db
@@ -26,3 +27,6 @@ backend/rag_db/
 *.csv
 Random Forest ML/rf_metrics.json
 Random Forest ML/rf_metrics.json.old
+Random Forest ML/*pkl
+Random Forest ML/*pkl.old
+Random Forest ML/baseline_metrics.json
