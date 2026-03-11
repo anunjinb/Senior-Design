@@ -25,16 +25,27 @@ const BugAnalysis = () => {
     const textToAnalyze = overrideQuery || query;
     if (!textToAnalyze) return;
 
-    setAnalyzing(true); setError(null); setPrediction(null); setDuplicates([]); setFeedbackSent(false);
+    setAnalyzing(true);
+    setError(null);
+    setPrediction(null);
+    setDuplicates([]);
+    setFeedbackSent(false);
     if (overrideQuery) setQuery(overrideQuery);
 
     try {
       const token = localStorage.getItem("token");
+
+      // Sending bug_text as a query parameter to match FastAPI
       const response = await axios.post(`/api/analyze_bug`,
-        { bug_text: textToAnalyze },
-        { headers: { Authorization: `Bearer ${token}` } }
+        null,
+        {
+          params: { bug_text: textToAnalyze },
+          headers: { Authorization: `Bearer ${token}` }
+        }
       );
+
       const data = response.data;
+
       if (data.severity) {
           setPrediction(data.severity);
           setDuplicates(data.similar_bugs || []);
@@ -44,11 +55,22 @@ const BugAnalysis = () => {
       }
     } catch (err) {
       setError("Could not connect to the server. Is the backend running?");
-    } finally { setAnalyzing(false); }
+    } finally {
+        setAnalyzing(false);
+    }
   };
 
-  const handleClear = () => { setQuery(''); setPrediction(null); setDuplicates([]); setError(null); setFeedbackSent(false); };
-  const sendFeedback = (isCorrect, actualSeverity) => { setFeedbackSent(true); };
+  const handleClear = () => {
+      setQuery('');
+      setPrediction(null);
+      setDuplicates([]);
+      setError(null);
+      setFeedbackSent(false);
+  };
+
+  const sendFeedback = (isCorrect, actualSeverity) => {
+      setFeedbackSent(true);
+  };
 
   return (
     <div className="ba-container fade-in">
@@ -131,7 +153,7 @@ const BugAnalysis = () => {
                     <div key={index} className="ba-bug-item">
                       <p className="ba-bug-summary" title={bug.summary}>{bug.summary}</p>
                       <div className="ba-tags">
-                        <span className="ba-tag tag-match">{bug.match}% Match</span>
+                        <span className="ba-tag tag-match">{bug.match || 'High'} Match</span>
                         <span className={`ba-tag ${bug.status === 'Fixed' || bug.status === 'RESOLVED' ? 'tag-fixed' : 'tag-open'}`}>
                             {bug.status || 'Unknown'}
                         </span>

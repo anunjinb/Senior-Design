@@ -33,8 +33,10 @@ export const mozillaTaxonomy = {
       "Inspector: Compatibility"
     ],
     "Runtime & Source": [
-      "geckodriver",
       "View Source"
+    ],
+    "Other": [
+      "MCP"
     ]
   },
   "Layout": {

@@ -1,24 +1,11 @@
 import os
-
-# --- DATABASE CONNECTION ---
-DB = {
-    "dbname": "bugbug_data",
-    "user": "postgres",
-    "password": "2331",
-    "host": "127.0.0.1",
-    "port": "5432"
-}
-
 # --- ML ARTIFACT PATHS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 # Safely resolve the ML directory (handles folder naming differences)
 ML_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "Random Forest ML"))
 if not os.path.exists(ML_DIR):
     ML_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "random_forest_ml"))
 
-# ⚡ FIXED: Models are saved directly in the backend folder!
-# Only the metrics JSON lives in the ML folder.
 ART_RF = {
     "model": os.path.join(BASE_DIR, "rf_model.pkl"),
     "vec": os.path.join(BASE_DIR, "tfidf_vectorizer.pkl"),
