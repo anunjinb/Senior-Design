@@ -7,6 +7,9 @@ from database import supabase
 from sqlalchemy import text
 from fastapi.responses import StreamingResponse
 import ml_logic 
+from fastapi.security import OAuth2PasswordBearer
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # --- AI & CONFIG ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -401,71 +404,24 @@ def get_batches(current_user = Depends(auth.get_current_user)):
 
 @app.post("/api/upload_and_train")
 async def upload_and_train(
-    batch_name: str = Form(...), 
     file: UploadFile = File(...), 
-    current_user = Depends(auth.get_current_user)
+    batch_name: str = Form(...),
+    token: str = Depends(oauth2_scheme)
 ):
-    try:
-        content = await file.read()
-        cid = current_user.get("company_id")
-        
-        # 1. Parse JSON
-        import json
-        try:
-            data = json.loads(content)
-        except Exception as parse_err:
-            raise HTTPException(status_code=400, detail="Invalid JSON format")
 
-        # 2. Record the batch
-        batch_entry = {
-            "batch_name": batch_name, 
-            "company_id": cid, 
-            "bug_count": len(data), 
-            "status": "completed"
-        }
-        supabase.table("training_batches").insert(batch_entry).execute()
-
-        bugs_to_insert = []
-        feedback_to_insert = []
-
-        for item in data:
-            # Get values exactly as they appear in your JSON
-            summary = item.get('summary', 'No summary')
-            pred_sev = str(item.get('predicted_severity', 'S3')).upper()
-            act_sev = str(item.get('actual_severity', 'S3')).upper()
-            comp = item.get('component', 'General')
-
-            # Prepare entry for 'bugs' table
-            bugs_to_insert.append({
-                "summary": summary,
-                "component": comp,
-                "severity": act_sev,
-                "company_id": cid,
-                "status": "processed"
-            })
-
-            # Prepare entry for 'feedback' table (This fills the Confusion Matrix!)
-            feedback_to_insert.append({
-                "company_id": cid,
-                "summary": summary,
-                "component": comp,
-                "predicted_severity": pred_sev,
-                "actual_severity": act_sev,
-                "is_correction": (pred_sev != act_sev)
-            })
-
-        # 3. Bulk Insert
-        if bugs_to_insert:
-            supabase.table("bugs").insert(bugs_to_insert).execute()
-        
-        if feedback_to_insert:
-            supabase.table("feedback").insert(feedback_to_insert).execute()
-
-        return {"message": "Success", "records_processed": len(data)}
-
-    except Exception as e:
-        print(f"UPLOAD ERROR: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+    user = verify_token(token)
+    content = await file.read()
+    df = pd.read_csv(io.BytesIO(content)) # Example for CSV
+    
+    batch_id = db.insert_batch_record(
+        batch_name=batch_name, 
+        count=len(df), 
+        company_id=user["company_id"]
+    )
+    
+    background_tasks.add_task(retrain_model_logic, df, user["company_id"])
+    
+    return {"status": "success", "batch_id": batch_id}
 
 @app.get("/api/hub/ml_metrics")
 def get_ml_metrics(current_user = Depends(auth.get_current_user)):

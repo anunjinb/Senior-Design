@@ -161,7 +161,18 @@ useEffect(() => {
     setShowOnboarding(false);
   };
 
-  const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  const toggleTheme = () => {
+  const newTheme = theme === 'light' ? 'dark' : 'light';
+  
+  // 1. Update the React state
+  setTheme(newTheme);
+  
+  // 2. THIS IS THE KEY: Tell the HTML to use the new colors
+  document.documentElement.setAttribute('data-theme', newTheme);
+  
+  // 3. Optional: Save it so it stays when you refresh
+  localStorage.setItem('theme', newTheme);
+};
 
   if (loading) return <div className="loading-screen">INITIALIZING APEX OS...</div>;
 

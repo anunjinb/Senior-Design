@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, CheckCircle, User, Lock, ArrowRight, Activity, Sun, Moon } from 'lucide-react';
+import { ShieldCheck, CheckCircle, User, Lock, ArrowRight, Activity } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import PasswordInput from "../Components/PasswordInput";
 
-export default function Login({ onLogin, theme, toggleTheme }) {
+export default function Login({ onLogin }) {
   const [mode, setMode] = useState('login');
   const [viewState, setViewState] = useState('form');
   const [email, setEmail] = useState('');
@@ -19,11 +20,7 @@ export default function Login({ onLogin, theme, toggleTheme }) {
         setMode('reset');
         setViewState('form');
         setIsRecovery(true);
-
-        if (session?.user?.email) {
-        setEmail(session.user.email);
-      }
-      
+        if (session?.user?.email) setEmail(session.user.email);
         setMsg("Recovery session active. Please enter your new password.");
       }
     });
@@ -44,7 +41,6 @@ export default function Login({ onLogin, theme, toggleTheme }) {
           email: email,
           password: password,
         });
-
         if (error) throw error;
 
         const { data: factors, error: factorError } = await supabase.auth.mfa.listFactors();
@@ -55,22 +51,14 @@ export default function Login({ onLogin, theme, toggleTheme }) {
         } else {
           onLogin(data.user);
         }
-
       } else if (mode === 'register') {
         const { data, error } = await supabase.auth.signUp({
           email: email,
           password: password,
-          options: {
-            data: {
-              company_name: companyName,
-              is_admin: true
-            }
-          }
+          options: { data: { company_name: companyName, is_admin: true } }
         });
-
         if (error) throw error;
         setViewState('success');
-
       } else if (mode === 'reset') {
         if (isRecovery) {
           const { error } = await supabase.auth.updateUser({ password: password });
@@ -96,14 +84,8 @@ export default function Login({ onLogin, theme, toggleTheme }) {
     try {
       const { data: factors } = await supabase.auth.mfa.listFactors();
       const factorId = factors.totp[0].id;
-
-      const { data, error } = await supabase.auth.mfa.challengeAndVerify({
-        factorId,
-        code: mfaCode,
-      });
-
+      const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code: mfaCode });
       if (error) throw error;
-      
       const { data: { user } } = await supabase.auth.getUser();
       onLogin(user);
     } catch (err) {
@@ -124,19 +106,20 @@ export default function Login({ onLogin, theme, toggleTheme }) {
   };
 
   return (
+    /* Removed the toggle button and the outer theme div for simplicity */
     <div className="login-backdrop-enterprise">
-      <button className="theme-toggle-btn" onClick={toggleTheme}>
-        {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-      </button>
-
       <div className="login-card-enterprise fade-in-up">
+        {/* LEFT BRAND SIDE - Kept dark for Enterprise feel */}
         <div className="login-brand-side">
           <div className="floating-shape shape-1"></div>
           <div className="floating-shape shape-2"></div>
           <div className="floating-shape shape-3"></div>
           <div className="brand-content">
             <div className="logo-box-large"><ShieldCheck size={48} color="white" /></div>
-            <h1>Apex System<span style={{ color: '#3b82f6' }}>OS</span></h1>
+            <h1>
+              <span style={{ color: '#f8fafc' }}>Bug Prioritization System</span>
+              <span style={{ color: '#3b82f6' }}>OS</span>
+            </h1>
             <p>ML-driven defect classification that gets smarter with every bug you submit</p>
             <div className="brand-stat-ent">
               <Activity size={16} /> <span>System Operational</span>
@@ -144,6 +127,7 @@ export default function Login({ onLogin, theme, toggleTheme }) {
           </div>
         </div>
 
+        {/* RIGHT FORM SIDE - Theme Locked */}
         <div className="login-form-side">
           {viewState === 'success' ? (
             <div className="fade-in center-content">
@@ -197,28 +181,20 @@ export default function Login({ onLogin, theme, toggleTheme }) {
 
                 {(mode !== 'reset' || isRecovery) && (
                   <div className="input-group">
-                    <Lock size={20} className="input-icon" />
-                    <input
-                      className="sys-input login-input"
-                      type="password"
-                      placeholder={isRecovery ? "New Password" : "Password"}
+                    <PasswordInput
                       value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      required
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={isRecovery ? "New Password" : "Password"}
                     />
                   </div>
                 )}
 
                 {(mode === 'register' || isRecovery) && (
                   <div className="input-group fade-in">
-                    <Lock size={20} className="input-icon" />
-                    <input
-                      className="sys-input login-input"
-                      type="password"
-                      placeholder="Confirm Password"
+                    <PasswordInput
                       value={confirmPassword}
-                      onChange={e => setConfirmPassword(e.target.value)}
-                      required
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm Password"
                     />
                   </div>
                 )}
